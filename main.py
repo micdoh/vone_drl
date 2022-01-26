@@ -83,28 +83,4 @@ model.learn(total_timesteps=10000, callback=callback)
 eva_2 = evaluate_policy(model, the_env_2, n_eval_episodes=10)
 the_env.close()
 
-loop = False
 
-if loop is True:
-    logs = ["./tmp/network_Env_0/", "./tmp/network_Env_1/", "./tmp/network_Env_2/", "./tmp/network_Env_3/",
-            "./tmp/network_Env_4/", "./tmp/network_Env_5/"]
-    load = [0.1, 0.5, 1, 1.5, 2, 2.5]
-    for i in range(len(load)):
-        os.makedirs(logs[i], exist_ok=True)
-        callback = SaveOnBestTrainingRewardCallback(check_freq=5000, log_dir=logs[i])
-
-        env_args = dict(episode_length=5000, load=load[i],
-                        mean_service_holding_time=10, k_paths=2)
-        env_args_2 = dict(episode_length=5000, load=load[i],
-                          mean_service_holding_time=10, k_paths=2, topology_num=1)
-        the_env = gym.make('network_Env-v0', **env_args)
-        the_env = Monitor(the_env, logs[i] + 'training', info_keywords=('P_accepted', 'topology_num',))
-        the_env_2 = gym.make('network_Env-v0', **env_args_2)
-        the_env_2 = Monitor(the_env_2, logs[i] + 'training', info_keywords=('P_accepted', 'topology_num',))
-
-        model = A2C("MultiInputPolicy", the_env, verbose=1, device='cuda', gamma=0.7)
-        model.learn(total_timesteps=200000, callback=callback)
-        # results_plotter.plot_results([log_dir], 200000, results_plotter.X_TIMESTEPS, 'network_Env-v0')
-        eva = evaluate_policy(model, the_env, n_eval_episodes=10)
-        eva_2 = evaluate_policy(model, the_env_2, n_eval_episodes=10)
-        the_env.close()
