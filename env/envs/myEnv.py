@@ -33,6 +33,7 @@ class MyEnv(gym.Env):
 
         self.topology_num = topology_num
         # create topology of substrate network
+        # 5-node topology
         if topology_num is None:
             self.topology_num = 0
             self.topology = nx.Graph()
@@ -63,6 +64,7 @@ class MyEnv(gym.Env):
             self.current_VN_capacity = np.zeros(3, dtype=int)
             self.current_VN_bandwidth = np.zeros(3, dtype=int)
 
+        # 5-node topology
         elif topology_num == 1:
             self.topology = nx.Graph()
             self.num_nodes = 5
@@ -94,6 +96,7 @@ class MyEnv(gym.Env):
             self.current_VN_capacity = np.zeros(3, dtype=int)
             self.current_VN_bandwidth = np.zeros(3, dtype=int)
 
+        # 9-node topology
         elif topology_num == 2:
             self.topology = nx.Graph()
             self.num_nodes = 9
@@ -130,6 +133,7 @@ class MyEnv(gym.Env):
             self.current_VN_capacity = np.zeros(3, dtype=int)
             self.current_VN_bandwidth = np.zeros(3, dtype=int)
 
+        # 9-node topology
         elif topology_num == 3:
             self.topology = nx.Graph()
             self.num_nodes = 9
@@ -165,7 +169,6 @@ class MyEnv(gym.Env):
             # create initialized virtual network observation
             self.current_VN_capacity = np.zeros(3, dtype=int)
             self.current_VN_bandwidth = np.zeros(3, dtype=int)
-
 
     def step(self, action):
         print('topology', self.topology_num)
