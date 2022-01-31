@@ -63,9 +63,6 @@ class MyEnv(gym.Env):
             self.current_VN_capacity = np.zeros(3, dtype=int)
             self.current_VN_bandwidth = np.zeros(3, dtype=int)
 
-            self.current_nodes_capacity = np.ones(5, dtype=int) * 5
-            self.current_slots_all = np.ones((self.num_links, self.num_slots), dtype=int)
-
         elif topology_num == 1:
             self.topology = nx.Graph()
             self.num_nodes = 5
@@ -97,14 +94,26 @@ class MyEnv(gym.Env):
             self.current_VN_capacity = np.zeros(3, dtype=int)
             self.current_VN_bandwidth = np.zeros(3, dtype=int)
 
-            self.current_nodes_capacity = np.ones(5, dtype=int) * 5
-            self.current_slots_all = np.ones((self.num_links, self.num_slots), dtype=int)
-
         elif topology_num == 2:
-            self.topology = nx.complete_graph(7)
-            self.num_nodes = 7
+            self.topology = nx.Graph()
+            self.num_nodes = 9
             self.num_slots = 8
-            self.num_links = 21
+            self.num_links = 13
+
+            # self.topology.add_edge(0, 1, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(0, 2, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(0, 3, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(1, 2, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(1, 4, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(2, 3, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(2, 5, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(2, 6, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(3, 7, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(4, 5, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(4, 8, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(5, 6, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(6, 8, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(7, 8, slots=np.ones(self.num_slots, dtype=int))
 
             # action_space
             self.action_space = gym.spaces.MultiDiscrete((self.num_nodes ** 3, self.k_paths ** 3, self.num_slots ** 3))
@@ -121,16 +130,45 @@ class MyEnv(gym.Env):
             self.current_VN_capacity = np.zeros(3, dtype=int)
             self.current_VN_bandwidth = np.zeros(3, dtype=int)
 
-            self.current_nodes_capacity = np.ones(5, dtype=int) * 5
-            self.current_slots_all = np.ones((self.num_links, self.num_slots), dtype=int)
+        elif topology_num == 3:
+            self.topology = nx.Graph()
+            self.num_nodes = 9
+            self.num_slots = 8
+            self.num_links = 13
+
+            # self.topology.add_edge(0, 1, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(0, 1, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(0, 2, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(1, 2, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(1, 4, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(2, 3, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(3, 5, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(3, 4, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(4, 8, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(5, 6, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(5, 7, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(5, 8, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(6, 7, slots=np.ones(self.num_slots, dtype=int))
+            self.topology.add_edge(7, 8, slots=np.ones(self.num_slots, dtype=int))
+
+            # action_space
+            self.action_space = gym.spaces.MultiDiscrete((self.num_nodes ** 3, self.k_paths ** 3, self.num_slots ** 3))
+
+            # observation_space
+            self.a = gym.spaces.MultiDiscrete((2 ** 3, 3 ** 3, 5 ** self.num_nodes))
+            self.b = gym.spaces.Box(low=0, high=1, shape=(self.num_slots * self.num_links,), dtype=int)
+            self.observation_space = gym.spaces.Dict(
+                {'Vcap_Vbw_Scap': self.a,
+                 'slots': self.b}
+            )
+
+            # create initialized virtual network observation
+            self.current_VN_capacity = np.zeros(3, dtype=int)
+            self.current_VN_bandwidth = np.zeros(3, dtype=int)
+
 
     def step(self, action):
-        if self.topology_num == 0:
-            print('topology 0')
-        elif self.topology_num == 1:
-            print('topology 1')
-        else:
-            print('?')
+        print('topology', self.topology_num)
         print('episode ', self.services_processed)
         print('current VN C ', self.current_VN_capacity)
         print('current VN BW ', self.current_VN_bandwidth)
@@ -151,9 +189,9 @@ class MyEnv(gym.Env):
         # Same for k_path action and initial slot action
 
         # nodes selected from the action
-        node0 = int(action[0] / self.num_nodes ** 2)
-        node1 = int((action[0] - node0 * self.num_nodes ** 2) / self.num_nodes ** 1)
-        node2 = int((action[0] - node0 * self.num_nodes ** 2 - node1 * self.num_nodes ** 1) / self.num_nodes ** 0)
+        node2 = int(action[0] / self.num_nodes ** 2)
+        node1 = int((action[0] - node2 * self.num_nodes ** 2) / self.num_nodes ** 1)
+        node0 = int((action[0] - node2 * self.num_nodes ** 2 - node1 * self.num_nodes ** 1) / self.num_nodes ** 0)
         nodes_selected = np.array([node0, node1, node2], dtype=int)
         print('nodes_selected: ')
         print(nodes_selected)
@@ -162,17 +200,17 @@ class MyEnv(gym.Env):
         # k0 is the link between node0 and node1
         # k1 is the link between node0 and node2
         # k2 is the link between node1 and node2
-        k0 = int(action[1] / self.k_paths ** 2)
-        k1 = int((action[1] - k0 * self.k_paths ** 2) / self.k_paths ** 1)
-        k2 = int((action[1] - k0 * self.k_paths ** 2 - k1 * self.k_paths ** 1) / self.k_paths ** 0)
+        k2 = int(action[1] / self.k_paths ** 2)
+        k1 = int((action[1] - k2 * self.k_paths ** 2) / self.k_paths ** 1)
+        k0 = int((action[1] - k2 * self.k_paths ** 2 - k1 * self.k_paths ** 1) / self.k_paths ** 0)
         k_path_selected = np.array([k0, k1, k2], dtype=int)
         print('k_path_selected: ')
         print(k_path_selected)
 
         # initial slot selected from the action
-        s0 = int(action[2] / self.num_slots ** 2)
-        s1 = int((action[2] - s0 * self.num_slots ** 2) / self.num_slots ** 1)
-        s2 = int((action[2] - s0 * self.num_slots ** 2 - s1 * self.num_slots ** 1) / self.num_slots ** 0)
+        s2 = int(action[2] / self.num_slots ** 2)
+        s1 = int((action[2] - s2 * self.num_slots ** 2) / self.num_slots ** 1)
+        s0 = int((action[2] - s2 * self.num_slots ** 2 - s1 * self.num_slots ** 1) / self.num_slots ** 0)
         initial_slot_selected = np.array([s0, s1, s2], dtype=int)
         print('initial_slot_selected: ')
         print(initial_slot_selected)
@@ -250,16 +288,16 @@ class MyEnv(gym.Env):
 
         # print mapping result immediately after mapping
         print('mapping result:')
-        SN_C = np.zeros(self.num_nodes, dtype=int)
-        SN_slots = np.zeros((self.num_links, self.num_slots), dtype=int)
+        SN_C_2 = np.zeros(self.num_nodes, dtype=int)
+        SN_slots_2 = np.zeros((self.num_links, self.num_slots), dtype=int)
         for i in range(len(self.topology.nodes)):
-            SN_C[i] = self.topology.nodes[i]['capacity']
+            SN_C_2[i] = self.topology.nodes[i]['capacity']
 
         for i in range(self.num_links):
-            SN_slots[i, :] = self.topology.edges[np.array(self.topology.edges)[i]]['slots']
+            SN_slots_2[i, :] = self.topology.edges[np.array(self.topology.edges)[i]]['slots']
         print(self.topology.edges)
-        print('SN_C ', SN_C)
-        print('SN_slots ', SN_slots)
+        print('SN_C ', SN_C_2)
+        print('SN_slots ', SN_slots_2)
         print('number of services', len(self.allocated_Service))
 
         self.set_load(self.load, self.mean_service_holding_time)
@@ -275,15 +313,15 @@ class MyEnv(gym.Env):
                 'topology_num': self.topology_num}
 
         # print substrate network at the moment before mapping the new virtual network
-        SN_C = np.zeros(self.num_nodes, dtype=int)
-        SN_slots = np.zeros((self.num_links, self.num_slots), dtype=int)
+        SN_C_1 = np.zeros(self.num_nodes, dtype=int)
+        SN_slots_1 = np.zeros((self.num_links, self.num_slots), dtype=int)
         for i in range(len(self.topology.nodes)):
-            SN_C[i] = self.topology.nodes[i]['capacity']
+            SN_C_1[i] = self.topology.nodes[i]['capacity']
 
         for i in range(self.num_links):
-            SN_slots[i, :] = self.topology.edges[np.array(self.topology.edges)[i]]['slots']
-        print('SN_C ', SN_C)
-        print('SN_slots ', SN_slots)
+            SN_slots_1[i, :] = self.topology.edges[np.array(self.topology.edges)[i]]['slots']
+        print('SN_C ', SN_C_1)
+        print('SN_slots ', SN_slots_1)
         print('number of services', len(self.allocated_Service))
 
         return observation, reward, done, info
@@ -310,7 +348,12 @@ class MyEnv(gym.Env):
         return self.topology
 
     def reward(self):
-        return 10 if self.accepted else -10
+        if self.accepted:
+            reward = 10
+        else:
+            reward = -10
+
+        return reward
 
     def get_k_shortest_paths(self, g, source, target, k, weight=None):
         """
@@ -420,8 +463,6 @@ class MyEnv(gym.Env):
         for i in range(self.num_nodes):
             Scap_array[i] = self.topology.nodes[i]['capacity']
 
-        # info
-        self.current_nodes_capacity = Scap_array
 
         for j in range(len(Scap_array)):
             Scap_int += Scap_array[j] ** j
@@ -433,11 +474,7 @@ class MyEnv(gym.Env):
             s_d = np.array(self.topology.edges)[i]
             Sslots_matrix[i, :] = self.topology.edges[s_d]['slots']
 
-        # info
-        self.current_slots_all = Sslots_matrix
 
         obs_dict['slots'] = Sslots_matrix.reshape(self.b.shape)
         return obs_dict
 
-    def get_topology(self):
-        return self.topology
