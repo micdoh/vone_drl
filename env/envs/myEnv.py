@@ -348,7 +348,7 @@ class MyEnv(gym.Env):
         return observation
 
     def render(self, mode="human"):
-        return self.topology
+        return self.topology, self.num_slots
 
     def reward(self):
         if self.accepted:
