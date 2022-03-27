@@ -1,0 +1,9 @@
+.idea
+tmp/
+__pycache__
+__pycache__/
+networktoolbox/
+runs/
+topologies/
+config/
+.vscode/

@@ -1,0 +1,3 @@
+[submodule "networktoolbox"]
+	path = networktoolbox
+	url = https://gitlab.ee.ucl.ac.uk/ong/networks/networktoolbox.git
