@@ -9,4 +9,3 @@ class Service:
         self.path = path
         self.links_BW = links_BW
         self.links_IS = links_IS
-

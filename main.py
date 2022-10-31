@@ -1,16 +1,20 @@
 import numpy as np
-import env
 import gym
-import stable_baselines3
 from stable_baselines3 import A2C
 from stable_baselines3 import PPO
 from stable_baselines3.common.results_plotter import load_results, ts2xy
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common import results_plotter
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.evaluation import evaluate_policy
-from IPython.display import clear_output
+from pathlib import Path
+from log_init import init_logger
 import os
+from gym.envs.registration import register
+
+register(
+    id='vone_Env-v0',
+    entry_point='env.envs:VoneEnv',
+)
 
 
 class SaveOnBestTrainingRewardCallback(BaseCallback):
@@ -55,37 +59,26 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
                     if self.verbose > 0:
                         print("Saving new best model to {}".format(self.save_path))
                         self.model.save(self.save_path)
-                if self.verbose > 0:
-                    clear_output(wait=True)
 
         return True
 
 
-# topology A
-log_dir = "./tmp/network_Env-v0/"
+log_dir = Path("./tmp/vone_Env-v0/")
 os.makedirs(log_dir, exist_ok=True)
+log_file = log_dir / f"training.log"
+logger = init_logger(log_file.resolve(), log_file.stem)
 callback = SaveOnBestTrainingRewardCallback(check_freq=5000, log_dir=log_dir)
 
-env_args = dict(episode_length=200, load=6,
-                mean_service_holding_time=10, k_paths=2, topology_num=None)
-the_env = gym.make('network_Env-v0', **env_args)
-the_env = Monitor(the_env, log_dir + 'training', info_keywords=('P_accepted', 'topology_num', 'load',))
-
-# topology B
-env_args_2 = dict(episode_length=5000, load=3,
-                  mean_service_holding_time=10, k_paths=2, topology_num=None)
-the_env_2 = gym.make('network_Env-v0', **env_args_2)
-the_env_2 = Monitor(the_env_2, log_dir + 'training', info_keywords=('P_accepted', 'topology_num', 'load',))
+env_args = dict(episode_length=5000, load=3, mean_service_holding_time=10, k_paths=2)
+the_env = gym.make('vone_Env-v0', **env_args)
+the_env = Monitor(the_env, str(log_file.resolve()), info_keywords=('P_accepted', 'topology_num', 'load',))
 
 # create agent
-model = A2C("MultiInputPolicy", the_env, verbose=1, device='cuda', gamma=0.6, n_steps=10) #, learning_rate=0.0007
+model = A2C("MultiInputPolicy", the_env, verbose=1, device='cuda', gamma=0.6, n_steps=10)  # ,learning_rate=0.0007
 model.learn(total_timesteps=200000)
-print("xxxxxxxxxxxxxxxxxxxx")
-#eva = evaluate_policy(model, the_env, n_eval_episodes=10)
-#eva_2 = evaluate_policy(model, the_env_2, n_eval_episodes=10)
-#the_env.close()
-the_env_2.close()
 
+eva = evaluate_policy(model, the_env, n_eval_episodes=10)
+the_env.close()
 
 loop = True
 if loop is True:
@@ -95,25 +88,17 @@ if loop is True:
     load = [0.1, 0.5, 1, 2, 3, 4, 5, 6]
     for i in range(len(load)):
         os.makedirs(logs[i], exist_ok=True)
-        """callback = SaveOnBestTrainingRewardCallback(check_freq=5000, log_dir=logs[i])
+        callback = SaveOnBestTrainingRewardCallback(check_freq=5000, log_dir=logs[i])
 
-        env_args = dict(episode_length=50, load=load[i],
-                        mean_service_holding_time=10, k_paths=2, topology_num=2)"""
-        env_args_2 = dict(episode_length=5000, load=load[i],
-                          mean_service_holding_time=10, k_paths=2, topology_num=None)
-        """the_env = gym.make('network_Env-v0', **env_args)
-        the_env = Monitor(the_env, logs[i] + 'training', info_keywords=('P_accepted', 'topology_num', 'load',))"""
-        the_env_2 = gym.make('network_Env-v0', **env_args_2)
-        the_env_2 = Monitor(the_env_2, logs[i] + 'training', info_keywords=('P_accepted', 'topology_num', 'load',))
+        env_args_2 = dict(
+            episode_length=5000,
+            load=load[i],
+            mean_service_holding_time=10,
+            k_paths=2,
+            topology_num=None
+        )
+        the_env = gym.make('network_Env-v0', **env_args)
+        the_env = Monitor(the_env, logs[i] + 'training', info_keywords=('P_accepted', 'topology_num', 'load',))
 
-        """model = A2C("MultiInputPolicy", the_env, verbose=1, device='cuda', gamma=0.6, learning_rate=0.0007, n_steps=10)
-        model.learn(total_timesteps=500000, callback=callback)
-        # results_plotter.plot_results([log_dir], 200000, results_plotter.X_TIMESTEPS, 'network_Env-v0')
-        eva = evaluate_policy(model, the_env, n_eval_episodes=10)"""
-        eva_2 = evaluate_policy(model, the_env_2, n_eval_episodes=5)
-        #the_env.close()
-        the_env_2.close()
-
-
-
-
+        eva = evaluate_policy(model, the_env, n_eval_episodes=5)
+        the_env.close()

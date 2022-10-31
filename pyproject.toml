@@ -1,0 +1,41 @@
+[tool.poetry]
+name = "vone-drl"
+version = "0.1.0"
+description = "Solving Virtual Optical Network Embedding using Deep Reinforcement Learning"
+authors = ["Michael Doherty, Yitao Zhang"]
+readme = "README.md"
+packages = [{include = "vone_drl"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+Gymnasium = "^0.26.3"
+numpy = "^1.23.4"
+torch = "^1.12.1"
+stable-baselines3 = "^1.6.2"
+networkx = "^2.8.7"
+Cython = "^0.29.32"
+pymongo = "^4.3.2"
+pillow = "^9.3.0"
+tqdm = "^4.64.1"
+scipy = "^1.9.3"
+joblib = "^1.2.0"
+pip = "^22.3"
+sklearn = "^0.0"
+geneticalgorithm = "^1.0.2"
+progress = "^1.6"
+cffi = "^1.15.1"
+
+[[tool.poetry.source]]
+name = "nvidia"
+url = "https://pypi.ngc.nvidia.com"
+default = false
+secondary = true
+
+[[tool.poetry.source]]
+name = "pypi-public"
+url = "https://pypi.org/simple/"
+default = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
