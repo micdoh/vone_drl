@@ -7,6 +7,7 @@ import copy
 import logging
 import wandb
 import stable_baselines3.common
+from math import comb
 from itertools import combinations, product, islice
 from service import Service
 from pathlib import Path
@@ -19,7 +20,11 @@ logger = logging.getLogger(__name__)
 
 # TODO - Implement scaling of capacity and separate evaluation environment
 # TODO - Implement invalid action masking: 1. find valid rows in tables and corresponding indexes, 2. generate mask
-# TODO - Replace action tables with generators, as here: https://bobbyhadz.com/blog/python-get-nth-element-of-generator
+# TODO - Allow first-fit as default slot selection (remove slot selection from action space)
+
+def get_nth_item(gen, n):
+    """Return the nth item from a generator"""
+    return next(islice(gen, n, None), None)
 
 
 class VoneEnv(gym.Env):
@@ -105,20 +110,16 @@ class VoneEnv(gym.Env):
              'slots': self.obs_slots}
         )
 
-        self.generate_node_selection_tables()  # Used to map action to node selection
-        self.generate_path_selection_tables()  # Used to map action to k-path selections between nodes
         self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
-        self.generate_slot_selection_tables()  # Used to map action to slot selection
-
         self.generate_vnet_cap_request_tables()
         self.generate_vnet_bw_request_tables()
 
         # action space sizes are maximum corresponding table size for maximum request size
         self.action_space = gym.spaces.MultiDiscrete(
             (
-                max(len(table) for table in self.node_selection_dict.values()),
-                max(len(table) for table in self.path_selection_dict.values()),
-                max(len(table) for table in self.slot_selection_dict.values()),
+                comb(self.num_nodes, self.max_vnet_size),
+                self.k_paths**self.max_vnet_size,
+                (self.num_slots-self.min_slot_request+1) ** self.max_vnet_size,
             )
         )
 
@@ -187,32 +188,22 @@ class VoneEnv(gym.Env):
         for node in self.topology.topology_graph.nodes:
             self.topology.topology_graph.nodes[node]['capacity'] = self.node_capacity
 
-    def generate_node_selection_tables(self):
+    def generate_node_selection(self, vnet_size):
         """Populate node_selection_dict with vnet_size: array pairs.
         Array elements indicate node selections, indexed by action space action number"""
-        for vnet_size in range(self.min_vnet_size, self.max_vnet_size+1):
             # node selection is sequence e.g. [1, 13, 7] that indicates which nodes will comprise virtual network
             # use combinations as node ordering does not matter
             # dict keyed by vnet size as different node selection table for each vnet size
-            self.node_selection_dict[vnet_size] = np.array(
-                list(
-                    combinations([x for x in range(self.num_nodes)], vnet_size)
-                )
-            )
+        return combinations([x for x in range(self.num_nodes)], vnet_size)
 
-    def generate_path_selection_tables(self):
+    def generate_path_selection(self, vnet_size):
         """Populate path_selection_dict with vnet_size: array pairs.
         Array elements indicate which kth path is taken between each virtual node.
         """
-        for vnet_size in range(self.min_vnet_size, self.max_vnet_size + 1):
             # k-path selection is sequence of e.g. [0, 1, 2, 1] that indicates which kth path to take between nodes
             # Use Cartesian product of k-path selection because order matters
             # dict keyed by vnet size as different path selection table for each vnet size
-            self.path_selection_dict[vnet_size] = np.array(
-                list(
-                    product(range(self.k_paths), repeat=vnet_size)
-                )
-            )
+        return product(range(self.k_paths), repeat=vnet_size)
 
     def generate_link_selection_table(self):
         """Populate link_selection_dict with node-pair-id: array pairs.
@@ -221,15 +212,10 @@ class VoneEnv(gym.Env):
             k_paths = self.get_k_shortest_paths(self.topology.topology_graph, node_pair[0], node_pair[1], self.k_paths)
             self.link_selection_dict[node_pair] = k_paths
             
-    def generate_slot_selection_tables(self):
+    def generate_slot_selection(self, vnet_size):
         """Populate slot_selection_dict with vnet_size: array pairs.
         Array rows are initial slot selection choices"""
-        for vnet_size in range(self.min_vnet_size, self.max_vnet_size + 1):
-            self.slot_selection_dict[vnet_size] = np.array(
-                list(
-                    product(range(self.num_slots-self.min_slot_request+1), repeat=vnet_size)
-                )
-            )
+        return product(range(self.num_slots-self.min_slot_request+1), repeat=vnet_size)
 
     def generate_vnet_cap_request_tables(self):
         for vnet_size in range(self.min_vnet_size, self.max_vnet_size + 1):
@@ -273,15 +259,15 @@ class VoneEnv(gym.Env):
         request_size = self.current_VN_capacity.size
 
         # Get node selection (dependent on number of nodes in request)
-        nodes_selected = self.node_selection_dict[request_size][action[0]]
+        nodes_selected = get_nth_item(self.generate_node_selection(request_size), action[0])
         logger.info(f' Nodes selected: {nodes_selected}')
 
         # k_paths selected from the action
-        k_path_selected = self.path_selection_dict[request_size][action[1]]
+        k_path_selected = get_nth_item(self.generate_path_selection(request_size), action[1])
         logger.info(f' Paths selected: {k_path_selected}')
 
         # initial slot selected from the action
-        initial_slot_selected = self.slot_selection_dict[request_size][action[2]]
+        initial_slot_selected = get_nth_item(self.generate_slot_selection(request_size), action[2])
         logger.info(f' Initial slots selected: {initial_slot_selected}')
 
         # check substrate node capacity

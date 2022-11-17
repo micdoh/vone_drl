@@ -17,6 +17,7 @@ from callback import SaveOnBestTrainingRewardCallback
 from stable_baselines3.common.callbacks import CallbackList
 from wandb.integration.sb3 import WandbCallback
 
+# TODO - Setup WandB sweep
 
 def mask_fn(env: gym.Env) -> np.ndarray:
     # Do whatever you'd like in this function to return the action mask
@@ -53,7 +54,7 @@ register(
 
 callbacks = [
     SaveOnBestTrainingRewardCallback(
-        check_freq=5000,
+        check_freq=conf['env_args']['episode_length'],
         log_dir=conf["log_dir"]
     )
 ]
@@ -98,7 +99,7 @@ model = PPO(
 )
 
 # TODO - Add training hyperparameters to config
-model.learn(total_timesteps=200000, callback=callback_list)
+model.learn(total_timesteps=conf['wandb_config']['total_timesteps'], callback=callback_list)
 
 eva = evaluate_policy(model, env, n_eval_episodes=10)
 env.close()

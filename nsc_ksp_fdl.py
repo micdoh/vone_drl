@@ -1,5 +1,3 @@
-import sys
-print(sys.executable)
 import numpy as np
 import networkx as nx
 import env
@@ -24,6 +22,9 @@ from itertools import islice
 #       if link mapping successful:
 #           give the action to the_env
 #
+
+# TODO - Understand if Yitao implemented another heuristic. If so, what was it?
+
 
 def get_k_shortest_paths(g, source, target, k, weight=None):
     """
@@ -68,7 +69,6 @@ def rank_substrate_nsc(topology):
             neighbor = list(topology.adj[i])[j]
             VSN_sum = VSN_sum + sum(topology.edges[i, neighbor]['slots'])
 
-        print(VSN_sum)
         # S_n_s = PN * VSN_sum
         S_n_s = topology.degree(i) * VSN_sum
         C_n_s = topology.nodes[i]['capacity']
@@ -98,6 +98,13 @@ def get_vnet_bandwidth_requirements(observation, env):
     return bw_request_table[bw_request_int]
 
 
+def get_gen_index(gen, value):
+    """Get index of generator value that matches"""
+    for n, item in enumerate(gen):
+        if (item == np.array(value)).all():
+            return n
+
+
 if __name__ == "__main__":
 
     num_episodes = 1
@@ -105,7 +112,7 @@ if __name__ == "__main__":
     episode_length = 5000
     env_args = dict(
         episode_length=episode_length,
-        load=3,
+        load=6,
         mean_service_holding_time=10,
         k_paths=k_paths,
         wandb_log=False,
@@ -148,9 +155,14 @@ if __name__ == "__main__":
 
             if node_mapping_success is True:
                 link_mapping_success = True
-                BW_ranked_connection = [(vnet_bandwidth[0], action_node[0], action_node[1], 0),
-                                        (vnet_bandwidth[1], action_node[0], action_node[2], 1),
-                                        (vnet_bandwidth[2], action_node[1], action_node[2], 2)]
+                BW_ranked_connection = []
+                for i in range(request_size-1):
+                    BW_ranked_connection.append(
+                        (vnet_bandwidth[i], action_node[i], action_node[i+1], i)
+                    )
+                BW_ranked_connection.append(
+                    (vnet_bandwidth[i+1], action_node[0], action_node[i+1], i+1)
+                )
                 BW_ranked_connection.sort(reverse=True)
 
                 for i in range(request_size):
@@ -159,7 +171,6 @@ if __name__ == "__main__":
                     destination = BW_ranked_connection[i][2]
                     action_index = BW_ranked_connection[i][3]
                     all_paths = get_k_shortest_paths(topology, source, destination, k_paths)
-                    print(all_paths)
 
                     FDL_candidates = []
 
@@ -215,31 +226,23 @@ if __name__ == "__main__":
 
             if link_mapping_success is True:
                 # Find row in node selection table that matches desired action
-                node_selection_table = the_env.node_selection_dict[request_size]
-                action_node_int = np.where((node_selection_table == action_node).all(axis=1))[0][0]
+                node_selection_gen = the_env.generate_node_selection(request_size)
+                action_node_int = get_gen_index(node_selection_gen, action_node)
 
                 # Find row in path selection table that matches desired action
-                path_selection_table = the_env.path_selection_dict[request_size]
-                action_k_path_int = np.where((path_selection_table == action_k_path).all(axis=1))[0][0]
+                path_selection_gen = the_env.generate_path_selection(request_size)
+                action_k_path_int = get_gen_index(path_selection_gen, action_k_path)
 
                 # Find row in slot selection table that matches desired action
-                slot_selection_table = the_env.slot_selection_dict[request_size]
-                action_initial_slots_int = np.where((slot_selection_table == action_initial_slots).all(axis=1))[0][0]
+                slot_selection_gen = the_env.generate_slot_selection(request_size)
+                action_initial_slots_int = get_gen_index(slot_selection_gen, action_initial_slots)
 
             else:
                 action_node_int = action_k_path_int = action_initial_slots_int = 0
 
-            print('action')
-            print(action_node)
-            print(action_k_path)
-            print(action_initial_slots)
-            print(node_mapping_success)
-            print(link_mapping_success)
-            print([action_node_int, action_k_path_int, action_initial_slots_int])
             observation, reward, done, info = the_env.step([action_node_int, action_k_path_int, action_initial_slots_int])
             topology_0, _ = the_env.render()
             topology = deepcopy(topology_0)
-            print('reward', reward)
 
     print(info)
     the_env.close()
