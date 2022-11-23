@@ -1,104 +1,107 @@
-import numpy as np
 import gym
-from stable_baselines3 import A2C
+import yaml
 from stable_baselines3 import PPO
-from stable_baselines3.common.results_plotter import load_results, ts2xy
-from stable_baselines3.common.callbacks import BaseCallback
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.evaluation import evaluate_policy
 from pathlib import Path
 from log_init import init_logger
 import os
 from gym.envs.registration import register
+import wandb
+import argparse
+import numpy as np
+from datetime import datetime
+from callback import SaveOnBestTrainingRewardCallback
+from stable_baselines3.common.callbacks import CallbackList
+from wandb.integration.sb3 import WandbCallback
+
+# TODO - Setup WandB sweep
+
+def mask_fn(env: gym.Env) -> np.ndarray:
+    # Do whatever you'd like in this function to return the action mask
+    # for the current env. In this example, we assume the env has a
+    # helpful method we can rely on.
+    # Don't forget to use MaskablePPO and ActionMasker wrapper for the env.
+    return env.valid_action_mask()
+
+
+def define_paths(run_id, conf):
+    log_dir = Path(conf["log_dir"])
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = log_dir / f"{run_id}.log"
+    logger = init_logger(log_file.absolute(), log_file.stem)
+    logger.info(f"Config file {args.file} contents:\n {conf}")
+    model_save_file = log_dir / f"{run_id}_model.zip"
+    tensorboard_log_file = log_dir / f"{run_id}_tensorboard.log"
+    monitor_file = log_dir / f"{run_id}_monitor.csv"
+    return log_dir, log_file, logger, model_save_file, tensorboard_log_file, monitor_file
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-f', '--file', type=str, help='Absolute path to config file for run')
+parser.add_argument('-t', '--test', action='store_true', help='Disable additional features e.g. weights and biases logging')
+args = parser.parse_args()
+conf = yaml.safe_load(Path(args.file).read_text())
+
+start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
 register(
     id='vone_Env-v0',
     entry_point='env.envs:VoneEnv',
 )
 
+callbacks = [
+    SaveOnBestTrainingRewardCallback(
+        check_freq=conf['env_args']['episode_length'],
+        log_dir=conf["log_dir"]
+    )
+]
 
-class SaveOnBestTrainingRewardCallback(BaseCallback):
-    """
-    Callback for saving a model (the check is done every ``check_freq`` steps)
-    based on the training reward (in practice, we recommend using ``EvalCallback``).
+log_dir, log_file, logger, model_save_file, tensorboard_log_file, monitor_file = define_paths(start_time, conf)
 
-    :param check_freq: (int)
-    :param log_dir: (str) Path to the folder where the model will be saved.
-      It must contains the file created by the ``Monitor`` wrapper.
-    :param verbose: (int)
-    """
+if not args.test:
+    wandb.setup(wandb.Settings(program="main.py", program_relpath="main.py"))
+    run = wandb.init(
+        project=conf["project"],
+        config=conf["wandb_config"],
+        dir=conf["log_dir"],
+        sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+        monitor_gym=True,  # auto-upload the videos of agents playing the game
+        save_code=True,  # optional
+    )
+    log_dir, log_file, logger, model_save_file, tensorboard_log_file, monitor_file = define_paths(run.id, conf)
+    callbacks.append(WandbCallback(
+        gradient_save_freq=0,
+        model_save_path=model_save_file.resolve(),
+        verbose=2,
+    ))
+    wandb.define_metric("episode_number")
+    wandb.define_metric("acceptance_ratio", step_metric="episode_number")
+    conf['env_args']['wandb_log'] = True
 
-    def __init__(self, check_freq: int, log_dir: str, verbose=1):
-        super(SaveOnBestTrainingRewardCallback, self).__init__(verbose)
-        self.check_freq = check_freq
-        self.log_dir = log_dir
-        self.save_path = os.path.join(log_dir, 'best_model')
-        self.best_mean_reward = -np.inf
+callback_list = CallbackList(callbacks)
 
-    def _init_callback(self) -> None:
-        # Create folder if needed
-        if self.save_path is not None:
-            os.makedirs(self.save_path, exist_ok=True)
-
-    def _on_step(self) -> bool:
-        if self.n_calls % self.check_freq == 0:
-            # Retrieve training reward
-            x, y = ts2xy(load_results(self.log_dir), 'timesteps')
-            if len(x) > 0:
-                # Mean training reward over the last 100 episodes
-                mean_reward = np.mean(y[-100:])
-                if self.verbose > 0:
-                    print("Num timesteps: {} - ".format(self.num_timesteps), end="")
-                    print(
-                        "Best mean reward: {:.2f} - Last mean reward per episode: {:.2f}".format(self.best_mean_reward,
-                                                                                                 mean_reward))
-                # New best model, you could save the agent here
-                if mean_reward > self.best_mean_reward:
-                    self.best_mean_reward = mean_reward
-                    # Example for saving best model
-                    if self.verbose > 0:
-                        print("Saving new best model to {}".format(self.save_path))
-                        self.model.save(self.save_path)
-
-        return True
-
-
-log_dir = Path("./tmp/vone_Env-v0/")
-os.makedirs(log_dir, exist_ok=True)
-log_file = log_dir / f"training.log"
-logger = init_logger(log_file.resolve(), log_file.stem)
-callback = SaveOnBestTrainingRewardCallback(check_freq=5000, log_dir=log_dir)
-
-env_args = dict(episode_length=5000, load=3, mean_service_holding_time=10, k_paths=2)
-the_env = gym.make('vone_Env-v0', **env_args)
-the_env = Monitor(the_env, str(log_file.resolve()), info_keywords=('P_accepted', 'topology_num', 'load',))
+info_keywords = ('P_accepted', 'topology_name', 'load',)
+env = gym.make(conf["env_name"], **conf["env_args"])
+env = Monitor(env, filename=str(monitor_file.resolve()), info_keywords=info_keywords)
 
 # create agent
-model = A2C("MultiInputPolicy", the_env, verbose=1, device='cuda', gamma=0.6, n_steps=10)  # ,learning_rate=0.0007
-model.learn(total_timesteps=200000)
+model = PPO(
+    "MultiInputPolicy",
+    env,
+    verbose=1,
+    device='cuda',
+    gamma=0.6,
+    n_steps=10,
+    tensorboard_log=tensorboard_log_file.resolve()
+)
 
-eva = evaluate_policy(model, the_env, n_eval_episodes=10)
-the_env.close()
+# TODO - Add training hyperparameters to config
+model.learn(total_timesteps=conf['wandb_config']['total_timesteps'], callback=callback_list)
 
-loop = True
-if loop is True:
-    logs = ["./tmp/network_Env_0/", "./tmp/network_Env_1/", "./tmp/network_Env_2/", "./tmp/network_Env_3/",
-            "./tmp/network_Env_4/", "./tmp/network_Env_5/", "./tmp/network_Env_6/", "./tmp/network_Env_7/",
-            "./tmp/network_Env_8/", "./tmp/network_Env_9/", "./tmp/network_Env_10/", "./tmp/network_Env_11/"]
-    load = [0.1, 0.5, 1, 2, 3, 4, 5, 6]
-    for i in range(len(load)):
-        os.makedirs(logs[i], exist_ok=True)
-        callback = SaveOnBestTrainingRewardCallback(check_freq=5000, log_dir=logs[i])
-
-        env_args_2 = dict(
-            episode_length=5000,
-            load=load[i],
-            mean_service_holding_time=10,
-            k_paths=2,
-            topology_num=None
-        )
-        the_env = gym.make('network_Env-v0', **env_args)
-        the_env = Monitor(the_env, logs[i] + 'training', info_keywords=('P_accepted', 'topology_num', 'load',))
-
-        eva = evaluate_policy(model, the_env, n_eval_episodes=5)
-        the_env.close()
+eva = evaluate_policy(model, env, n_eval_episodes=10)
+env.close()
+if not args.test:
+    run.finish()

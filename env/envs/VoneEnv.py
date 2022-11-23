@@ -5,14 +5,26 @@ import networkx as nx
 import numpy as np
 import copy
 import logging
+import wandb
 import stable_baselines3.common
-from itertools import islice
+from math import comb
+from itertools import combinations, product, islice
 from service import Service
 from pathlib import Path
+from collections import Counter, defaultdict
 from networktoolbox.NetworkToolkit.Topology import Topology
 
 
 logger = logging.getLogger(__name__)
+
+
+# TODO - Implement scaling of capacity and separate evaluation environment
+# TODO - Implement invalid action masking: 1. find valid rows in tables and corresponding indexes, 2. generate mask
+# TODO - Allow first-fit as default slot selection (remove slot selection from action space)
+
+def get_nth_item(gen, n):
+    """Return the nth item from a generator"""
+    return next(islice(gen, n, None), None)
 
 
 class VoneEnv(gym.Env):
@@ -21,11 +33,20 @@ class VoneEnv(gym.Env):
                  episode_length: int,
                  load: int,
                  mean_service_holding_time: int,
-                 k_paths: int,
-                 topology_num: int = None,
-                 topology_path: Path = Path(r"M:\git\vone_drl\topologies\topology3.adjlist"),
+                 k_paths: int = 2,
+                 topology_path: str = None,
+                 topology_name: str = "nsfnet",
                  num_slots: int = 16,
-                 node_capacity: int = 5
+                 node_capacity: int = 5,
+                 seed: int = 1,
+                 min_node_cap_request: int = 1,
+                 max_node_cap_request: int = 2,
+                 min_slot_request: int = 2,
+                 max_slot_request: int = 4,
+                 min_vnet_size: int = 3,
+                 max_vnet_size: int = 3,
+                 vnet_size_dist: str = 'fixed',
+                 wandb_log: bool = False,
                  ):
         self.current_time = 0
         self.allocated_Service = []
@@ -36,53 +57,130 @@ class VoneEnv(gym.Env):
         self.num_slots = num_slots
         self.node_capacity = node_capacity
         self.num_path_accepted = 0
+        self.min_node_cap_request = min_node_cap_request
+        self.max_node_cap_request = max_node_cap_request
+        self.node_accepted = False
+        self.min_slot_request = min_slot_request
+        self.max_slot_request = max_slot_request
+        self.min_vnet_size = min_vnet_size
+        self.max_vnet_size = max_vnet_size
+        self.vnet_size_dist = self.vnet_size_distribution(vnet_size_dist)
+        self.node_selection_dict = {}
+        self.path_selection_dict = {}
+        self.link_selection_dict = {}
+        self.slot_selection_dict = {}
+        self.vnet_cap_request_dict = {}
+        self.vnet_bw_request_dict = {}
+        self.total_reward = 0
+        self.num_resets = 0
+        self.wandb_log = wandb_log
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
         self.mean_service_inter_arrival_time = 0
+        self.set_load(load, mean_service_holding_time)
 
         self.k_paths = k_paths
 
-        self.rng = random.Random(41)
+        self.rng = random.Random(seed)
 
-        self.set_load(load, mean_service_holding_time)
+        self.topology_path = None if not topology_path else Path(topology_path)
+        self.topology_name = topology_name
 
-        self.topology_num = topology_num
-        self.topology_path = topology_path
         # create topology of substrate network
-        # 5-node topology
+        self.topology = Topology()
+        self.init_topology()
+        self.reset_slots()
+        self.reset_nodes()
+        self.num_nodes = self.topology.topology_graph.number_of_nodes()
+        self.num_links = self.topology.topology_graph.number_of_edges()
+
+        # observation_space
+        node_resource_capacity = [self.node_capacity+1]*self.num_nodes
+        self.obs_request_and_nrc = gym.spaces.MultiDiscrete(
+            (
+                (self.max_node_cap_request - self.min_node_cap_request + 1) ** self.max_vnet_size,
+                (self.max_slot_request - self.min_slot_request + 1) ** self.max_vnet_size,
+                *node_resource_capacity
+            )
+        )
+        self.obs_slots = gym.spaces.Box(low=0, high=1, shape=(self.num_slots * self.num_links,), dtype=int)
+        self.observation_space = gym.spaces.Dict(
+            {'Vcap_Vbw_Scap': self.obs_request_and_nrc,
+             'slots': self.obs_slots}
+        )
+
+        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
+        self.generate_vnet_cap_request_tables()
+        self.generate_vnet_bw_request_tables()
+
+        # action space sizes are maximum corresponding table size for maximum request size
+        self.action_space = gym.spaces.MultiDiscrete(
+            (
+                comb(self.num_nodes, self.max_vnet_size),
+                self.k_paths**self.max_vnet_size,
+                (self.num_slots-self.min_slot_request+1) ** self.max_vnet_size,
+            )
+        )
+
+        # create initialized virtual network observation
+        self.current_VN_capacity = np.zeros(self.max_vnet_size, dtype=int)
+        self.current_VN_bandwidth = np.zeros(self.max_vnet_size, dtype=int)
+
+    def reset(self):
+        """Called at beginning of each episode"""
+        if self.wandb_log:
+            wandb.log({
+                "episode_number": self.num_resets,
+                "acceptance_ratio": self.services_accepted / self.services_processed if self.services_processed > 0 else 0,
+                "mean_reward": self.total_reward / self.services_processed if self.services_processed > 0 else 0,
+            })
+        self.current_time = 0
+        self.allocated_Service = []
+        self.services_processed = 0
+        self.services_accepted = 0
+        self.accepted = False
+        self.reset_nodes()
+        self.reset_slots()
+        self.request_generator()
+        self.total_reward = 0
+        self.num_resets += 1
+        observation = self.observation()
+
+        return observation
+
+    def init_topology(self):
+        """Initialise topology based on contents of config dir"""
         if self.topology_path:
-
-            self.topology = Topology()
-            self.topology.load_topology(self.topology_path.resolve())
-            self.topology.topology_graph = nx.convert_node_labels_to_integers(
-                self.topology.topology_graph,
-                label_attribute='name'
-            )
-            self.reset_slots()
-            self.reset_nodes()
-            self.num_nodes = self.topology.topology_graph.number_of_nodes()
-            self.num_links = self.topology.topology_graph.number_of_nodes()
-
-            # action_space
-            self.action_space = gym.spaces.MultiDiscrete((self.num_nodes ** 3, self.k_paths ** 3, self.num_slots ** 3))
-
-            # observation_space
-            self.a = gym.spaces.MultiDiscrete((2 ** 3, 3 ** 3, 6 ** self.num_nodes))
-            self.b = gym.spaces.Box(low=0, high=1, shape=(self.num_slots * self.num_links,), dtype=int)
-            self.observation_space = gym.spaces.Dict(
-                {'Vcap_Vbw_Scap': self.a,
-                 'slots': self.b}
-            )
-
-            # create initialized virtual network observation
-            self.current_VN_capacity = np.zeros(3, dtype=int)
-            self.current_VN_bandwidth = np.zeros(3, dtype=int)
+            self.topology_path = self.topology_path / self.topology_name
+            self.topology.load_topology(f"{self.topology_path.absolute()}.adjlist")
+        elif self.topology_name == 'nsfnet':
+            self.topology.init_nsf()
+        elif self.topology_name == 'btcore':
+            self.topology.init_btcore()
+        elif self.topology_name == 'google_b4':
+            self.topology.init_google_b4()
+        elif self.topology_name == 'uknet':
+            self.topology.init_uk_net()
+        elif self.topology_name == 'dtag':
+            self.topology.init_dtag()
+        elif self.topology_name == 'eurocore':
+            self.topology.init_EURO_core()
+        else:
+            raise Exception(f'Invalid topology name without specified path: {self.topology_name} \n'
+                            f'Check config file is correct.')
+        # Ensure nodes are numbered. Move names to node attribute 'name'.
+        self.topology.topology_graph = nx.convert_node_labels_to_integers(
+            self.topology.topology_graph,
+            label_attribute='name'
+        )
 
     def reset_slots(self):
         """Set available slots on each link back to default"""
-        edge_attrs = {edge: {"slots": np.ones(self.num_slots, dtype=int)} for edge in
-                      self.topology.topology_graph.edges()}
+        edge_attrs = {
+            edge: {"slots": np.ones(self.num_slots, dtype=int)}
+            for edge in self.topology.topology_graph.edges()
+        }
         nx.set_edge_attributes(self.topology.topology_graph, values=edge_attrs)
 
     def reset_nodes(self):
@@ -90,8 +188,54 @@ class VoneEnv(gym.Env):
         for node in self.topology.topology_graph.nodes:
             self.topology.topology_graph.nodes[node]['capacity'] = self.node_capacity
 
+    def generate_node_selection(self, vnet_size):
+        """Populate node_selection_dict with vnet_size: array pairs.
+        Array elements indicate node selections, indexed by action space action number"""
+            # node selection is sequence e.g. [1, 13, 7] that indicates which nodes will comprise virtual network
+            # use combinations as node ordering does not matter
+            # dict keyed by vnet size as different node selection table for each vnet size
+        return combinations([x for x in range(self.num_nodes)], vnet_size)
+
+    def generate_path_selection(self, vnet_size):
+        """Populate path_selection_dict with vnet_size: array pairs.
+        Array elements indicate which kth path is taken between each virtual node.
+        """
+            # k-path selection is sequence of e.g. [0, 1, 2, 1] that indicates which kth path to take between nodes
+            # Use Cartesian product of k-path selection because order matters
+            # dict keyed by vnet size as different path selection table for each vnet size
+        return product(range(self.k_paths), repeat=vnet_size)
+
+    def generate_link_selection_table(self):
+        """Populate link_selection_dict with node-pair-id: array pairs.
+        Array rows give k-shortest path for each node pair"""
+        for node_pair in combinations(self.topology.topology_graph.nodes, 2):
+            k_paths = self.get_k_shortest_paths(self.topology.topology_graph, node_pair[0], node_pair[1], self.k_paths)
+            self.link_selection_dict[node_pair] = k_paths
+            
+    def generate_slot_selection(self, vnet_size):
+        """Populate slot_selection_dict with vnet_size: array pairs.
+        Array rows are initial slot selection choices"""
+        return product(range(self.num_slots-self.min_slot_request+1), repeat=vnet_size)
+
+    def generate_vnet_cap_request_tables(self):
+        for vnet_size in range(self.min_vnet_size, self.max_vnet_size + 1):
+            self.vnet_cap_request_dict[vnet_size] = np.array(
+                list(
+                    product(range(self.min_node_cap_request, self.max_node_cap_request+1), repeat=vnet_size)
+                )
+            )
+
+    def generate_vnet_bw_request_tables(self):
+        for vnet_size in range(self.min_vnet_size, self.max_vnet_size + 1):
+            self.vnet_bw_request_dict[vnet_size] = np.array(
+                list(
+                    product(range(self.min_slot_request, self.max_slot_request+1), repeat=vnet_size)
+                )
+            )
+
     def step(self, action):
-        """step function has two part. In Part1, it checks whether the action meets the constraints,
+        """step function has two part.
+        In Part1, it checks whether the action meets the constraints,
         In Part2, it pushes the time to the moment just before the new request arriving, and send it to the agent
 
         #####################################################################################################
@@ -106,98 +250,62 @@ class VoneEnv(gym.Env):
               If we do base conversion, we can transfer Decimal number to Hexadecimal number,
               and hence know the nodes.
         Same for k_path action and initial slot action"""
-        logger.info(f'Topology ID: {self.topology_num}')
-        logger.info(f'Time step: {self.services_processed}')
-        logger.info(f'current VN C: {self.current_VN_capacity}')
-        logger.info(f'current VN BW: {self.current_VN_bandwidth}')
+        logger.info(f' Timestep  : {self.services_processed}')
+        logger.info(f' Capacity  : {self.current_VN_capacity}')
+        logger.info(f' Bandwidth : {self.current_VN_bandwidth}')
 
-        # nodes selected from the action
-        node2 = int(action[0] / self.num_nodes ** 2)
-        node1 = int((action[0] - node2 * self.num_nodes ** 2) / self.num_nodes ** 1)
-        node0 = int((action[0] - node2 * self.num_nodes ** 2 - node1 * self.num_nodes ** 1) / self.num_nodes ** 0)
-        nodes_selected = np.array([node0, node1, node2], dtype=int)
-        logger.info(f'nodes_selected: {nodes_selected}')
+        node_free = path_free = True
+
+        request_size = self.current_VN_capacity.size
+
+        # Get node selection (dependent on number of nodes in request)
+        nodes_selected = get_nth_item(self.generate_node_selection(request_size), action[0])
+        logger.info(f' Nodes selected: {nodes_selected}')
 
         # k_paths selected from the action
-        # k0 is the link between node0 and node1
-        # k1 is the link between node0 and node2
-        # k2 is the link between node1 and node2
-        k2 = int(action[1] / self.k_paths ** 2)
-        k1 = int((action[1] - k2 * self.k_paths ** 2) / self.k_paths ** 1)
-        k0 = int((action[1] - k2 * self.k_paths ** 2 - k1 * self.k_paths ** 1) / self.k_paths ** 0)
-        k_path_selected = np.array([k0, k1, k2], dtype=int)
-        logger.info(f'k_path_selected: {k_path_selected}')
+        k_path_selected = get_nth_item(self.generate_path_selection(request_size), action[1])
+        logger.info(f' Paths selected: {k_path_selected}')
 
         # initial slot selected from the action
-        s2 = int(action[2] / self.num_slots ** 2)
-        s1 = int((action[2] - s2 * self.num_slots ** 2) / self.num_slots ** 1)
-        s0 = int((action[2] - s2 * self.num_slots ** 2 - s1 * self.num_slots ** 1) / self.num_slots ** 0)
-        initial_slot_selected = np.array([s0, s1, s2], dtype=int)
-        logger.info(f'initial_slot_selected: {initial_slot_selected}')
+        initial_slot_selected = get_nth_item(self.generate_slot_selection(request_size), action[2])
+        logger.info(f' Initial slots selected: {initial_slot_selected}')
 
-        # make sure different substrate nodes are used & check substrate node capacity
-        node_free = True
-        if (nodes_selected[0] != nodes_selected[1]) & (nodes_selected[0] != nodes_selected[2]) \
-                & (nodes_selected[1] != nodes_selected[2]):
-            for i in range(3):
-                node_free = node_free & self.is_node_free(nodes_selected[i], self.current_VN_capacity[i])
-        else:
-            node_free = False
+        # check substrate node capacity
+        cap = np.array([self.topology.topology_graph.nodes[i]['capacity'] for i in nodes_selected])
+        node_free = (cap >= self.current_VN_capacity).all()
 
         # make sure different path slots are used & check substrate link BW
-        path_free = True
-        path_list = [0, 0, 0]
-
         self.num_path_accepted = 0
-        if node_free is True:
-            # create matrices that show the connection of a path. they are symmetric matrices
-            path_matrix = np.zeros((3, self.num_nodes, self.num_nodes), dtype=int)
-            # connection gives the source and destination of a virtual link
-            connection = np.array([[0, 1],
-                                   [0, 2],
-                                   [1, 2]], dtype=int)
-            for i in range(3):
-                source = nodes_selected[connection[i, 0]]
-                destination = nodes_selected[connection[i, 1]]
-                if k_path_selected[i] + 1 > len(self.get_k_shortest_paths(self.topology.topology_graph, source, destination,
-                                                                          k_path_selected[i] + 1)):
-                    path_free = False
-                else:
-                    path = self.get_k_shortest_paths(
-                        self.topology.topology_graph,
-                        source,
-                        destination,
-                        k_path_selected[i] + 1
-                    )[
-                        k_path_selected[i]
-                    ]
-                    logger.info(f"Path: {path}")
-                    path_list[i] = path
-                    for j in range(len(path) - 1):
-                        path_matrix[i, path[j], path[j + 1]] = 1
-                        path_matrix[i, path[j + 1], path[j]] = 1
 
-                    path_free = path_free & self.is_path_free(path, initial_slot_selected[i],
-                                                              self.current_VN_bandwidth[i])
-                    if self.is_path_free(path, initial_slot_selected[i], self.current_VN_bandwidth[i]):
-                        self.num_path_accepted += 1
+        # If node check fails, skip path check
+        if node_free:
 
-            # we need to make sure the slots in the substrate network do not crash each other
-            # use the path_matrices created in the previous step to check if there are links that be used many times
-            # if such a link exists, we check the slot usage of the two path
-            # check if the initial slot with larger index lies within the occupied slots of another path.
-            for k in range(3):
-                path_matrix_check = path_matrix[connection[k, 0], :, :] & path_matrix[connection[k, 1], :, :] == 0
-                if not np.all(path_matrix_check == True):
-                    min_is = min(initial_slot_selected[connection[k, 0]], initial_slot_selected[connection[k, 1]])
-                    max_is = max(initial_slot_selected[connection[k, 0]], initial_slot_selected[connection[k, 1]])
-                    if min_is == initial_slot_selected[connection[k, 0]]:
-                        min_is_bw = self.current_VN_bandwidth[connection[k, 0]]
-                    else:
-                        min_is_bw = self.current_VN_bandwidth[connection[k, 1]]
+            # 1. Check slots are free
+            # 2. Check slots aren't reused in same request
 
-                    if min_is + min_is_bw - 1 >= max_is:
-                        path_free = False
+            for i in range(request_size):
+
+                path_list = []
+                for j in range(len(nodes_selected) - 1):
+                    path_list.append(
+                        self.link_selection_dict[
+                            nodes_selected[j],
+                            nodes_selected[j+1]
+                        ]
+                        [
+                            k_path_selected[j]
+                        ]
+                    )
+                path_list.append(self.link_selection_dict[nodes_selected[0], nodes_selected[-1]][k_path_selected[-1]])
+
+                current_path_free = self.is_path_free(path_list[i], initial_slot_selected[i], self.current_VN_bandwidth[i])
+
+                if current_path_free:
+                    self.num_path_accepted += 1
+
+                path_free = path_free & current_path_free
+
+            path_free = path_free & self.is_slot_not_reused(path_list, initial_slot_selected, self.current_VN_bandwidth)
 
         # accepted?
         self.accepted = node_free & path_free
@@ -217,6 +325,7 @@ class VoneEnv(gym.Env):
         self.traffic_generator()
         self.request_generator()
         reward = self.reward()
+        self.total_reward += reward
         logger.info(f"Reward: {reward}")
 
         self.services_processed += 1
@@ -224,25 +333,20 @@ class VoneEnv(gym.Env):
         observation = self.observation()
         done = self.services_processed == self.episode_length
         info = {'P_accepted': self.services_accepted / self.services_processed,
-                'topology_num': self.topology_num,
+                'topology_name': self.topology_name,
                 'load': self.load}
 
         return observation, reward, done, info
 
-    def reset(self):
-        self.current_time = 0
-        self.allocated_Service = []
-        self.services_processed = 0
-        self.services_accepted = 0
-        self.accepted = False
-
-        self.reset_nodes()
-        self.reset_slots()
-
-        self.request_generator()
-        observation = self.observation()
-
-        return observation
+    def vnet_size_distribution(self, dist_name):
+        """Set the probability distribution function used to generate the request sizes"""
+        if dist_name == 'fixed':
+            return lambda: self.min_vnet_size
+        elif dist_name == 'random':
+            return lambda: self.rng.randint(*(self.min_vnet_size, self.max_vnet_size))
+        # TODO - Investigate other possible distributions e.g. realistic traffic
+        else:
+            raise Exception(f'Invalid virtual network size distribution selected: {dist_name}')
 
     def render(self, mode="human"):
         return self.topology.topology_graph, self.num_slots
@@ -252,29 +356,22 @@ class VoneEnv(gym.Env):
         if self.accepted:
             reward = 10
         else:
-            if self.node_accepted:
-                if self.num_path_accepted > 1:
-                    reward = 5
-                else:
-                    reward = -5
-            else:
-                reward = -10
+            reward = 0
 
         return reward
 
     def get_k_shortest_paths(self, g, source, target, k, weight=None):
         """
+        Return list of k shortest paths from source to target
         Method from https://networkx.github.io/documentation/stable/reference/algorithms/generated/networkx.algorithms
         .simple_paths.shortest_simple_paths.html#networkx.algorithms.simple_paths.shortest_simple_paths
         """
         return list(islice(nx.shortest_simple_paths(g, source, target, weight=weight), k))
 
     def is_node_free(self, n, capacity_required):
-        n_capacity = self.topology.topology_graph.nodes[n]['capacity']
-        if n_capacity < capacity_required:
-            return False
-        else:
-            return True
+        """Check node n has sufficient capacity to accommodate request"""
+        capacity = self.topology.topology_graph.nodes[n]['capacity']
+        return True if capacity > capacity_required else False
 
     def is_path_free(self, path, initial_slot, num_slots):
         if initial_slot + num_slots > self.num_slots:
@@ -284,8 +381,30 @@ class VoneEnv(gym.Env):
         for i in range(len(path) - 1):
             path_slots = path_slots & self.topology.topology_graph.edges[path[i], path[i + 1]]['slots']
 
-        if np.sum(path_slots[initial_slot:initial_slot + num_slots]) < num_slots:
+        if np.sum(path_slots[initial_slot: initial_slot+num_slots]) < num_slots:
             return False
+        return True
+
+    def is_slot_not_reused(self, paths, initial_slots, num_slots):
+        """Check if requested slots clash in the same request
+        1. Check if any links used more than once
+        2. Get initial slots and requested number of slots for reused links
+        3. Check for overlap"""
+        node_pairs = defaultdict(list)
+        for n, path in enumerate(paths):
+            for i in range(len(path)-1):
+                node_pairs[(path[i], path[i+1])].append(n)
+
+        for link, n_paths in node_pairs.items():
+
+            # Links reused
+            if len(n_paths) > 1:
+
+                # Get slots used in same link for each path then check for duplicates
+                req_slots = [slot for n in n_paths for slot in range(initial_slots[n], initial_slots[n]+num_slots[n])]
+                if len(req_slots) != len(set(req_slots)):
+                    return False
+
         return True
 
     def add_to_list(self, service: Service):
@@ -347,43 +466,37 @@ class VoneEnv(gym.Env):
                 break
 
     def request_generator(self):
+        """Generate requested node capacity and link bandwidth"""
         for i in range(len(self.current_VN_capacity)):
-            self.current_VN_capacity[i] = self.rng.randint(1, 2)
+            self.current_VN_capacity[i] = self.rng.randint(*(self.min_node_cap_request, self.max_node_cap_request))
 
         for i in range(len(self.current_VN_bandwidth)):
-            self.current_VN_bandwidth[i] = self.rng.randint(2, 4)
+            self.current_VN_bandwidth[i] = self.rng.randint(*(self.min_slot_request, self.max_slot_request))
 
     def observation(self):
         # VN observation + SN observation
-        obs_dict = {'Vcap_Vbw_Scap': np.zeros(3, dtype=int),
+        obs_dict = {'Vcap_Vbw_Scap': np.zeros(len(self.current_VN_capacity), dtype=int),
                     'slots': np.zeros(self.num_slots * self.num_links, dtype=int)}
-        Vcap_array = self.current_VN_capacity - 1
-        Vcap_int = 0
-        for i in range(len(Vcap_array)):
-            Vcap_int += Vcap_array[i] * 2 ** i
 
-        Vbw_array = self.current_VN_bandwidth - 2
-        Vbw_int = 0
-        for i in range(len(Vbw_array)):
-            Vbw_int += Vbw_array[i] * 3 ** i
+        # Find row in node request table that matches observation
+        node_request_table = self.vnet_cap_request_dict[self.current_VN_capacity.size]
+        Vcap_int = np.where((node_request_table == self.current_VN_capacity).all(axis=1))[0]
 
-        Scap_array = np.zeros(self.num_nodes, dtype=int)
-        Scap_int = 0
-        for node in self.topology.topology_graph.nodes:
-            Scap_array[node] = self.topology.topology_graph.nodes[node]['capacity']
+        # Find row in slot request table that matches observation
+        slot_request_table = self.vnet_bw_request_dict[self.current_VN_bandwidth.size]
+        Vbw_int = np.where((slot_request_table == self.current_VN_bandwidth).all(axis=1))[0]
 
-        for j in range(len(Scap_array)):
-            Scap_int += Scap_array[j] * 6 ** j
+        # Get node capacities from graph attribute
+        Scap_array = np.array(list(nx.get_node_attributes(self.topology.topology_graph, 'capacity').values()))
 
-        obs_dict['Vcap_Vbw_Scap'] = [Vcap_int, Vbw_int, Scap_int]
+        obs_dict['Vcap_Vbw_Scap'] = np.array([*Vcap_int, *Vbw_int, *Scap_array])
 
-        Sslots_matrix = np.zeros((self.num_links, self.num_slots), dtype=int)
-        for i in range(self.num_links):
-            s_d = np.array(self.topology.topology_graph.edges)[i]
-            Sslots_matrix[i, :] = self.topology.topology_graph.edges[s_d]['slots']
-
-        obs_dict['slots'] = Sslots_matrix.reshape(self.b.shape)
+        Sslots_matrix = np.array([self.topology.topology_graph.adj[edge[0]][edge[1]]['slots'] for edge in self.topology.topology_graph.edges])
+        obs_dict['slots'] = Sslots_matrix.reshape(self.obs_slots.shape)
         return obs_dict
+
+    def valid_action_mask(self):
+        return True
 
     def print_topology(self):
         SN_C = np.zeros(self.num_nodes, dtype=int)
@@ -404,4 +517,14 @@ class VoneEnv(gym.Env):
 
 if __name__ == "__main___":
     # Test to check env is compatible with gym API
+    print('Checking env')
     stable_baselines3.common.env_checker.check_env(VoneEnv)
+
+    env = VoneEnv()
+    print('Env created')
+    obs = env.reset()
+    n_steps = 10
+    for _ in range(n_steps):
+        # Random action
+        action = env.action_space.sample()
+        obs, reward, done, info = env.step(action)

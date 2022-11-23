@@ -5,7 +5,7 @@ def init_logger(log_file: str, logger_name: str):
     # create logger with 'spam_application'
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.DEBUG)
-    # create file handler which logs even debug messages
+    # create file handler which logs event debug messages
     fh = logging.FileHandler(log_file)
     fh.setLevel(logging.DEBUG)
     # create console handler with a higher log level
