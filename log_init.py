@@ -1,16 +1,16 @@
 import logging
 
 
-def init_logger(log_file: str, logger_name: str):
-    # create logger with 'spam_application'
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.DEBUG)
+def init_logger(log_file: str, loglevel: str):
+    logger = logging.getLogger()
+    loglevel = getattr(logging, loglevel.upper())
+    logger.setLevel(loglevel)
     # create file handler which logs event debug messages
     fh = logging.FileHandler(log_file)
-    fh.setLevel(logging.DEBUG)
+    fh.setLevel(loglevel)
     # create console handler with a higher log level
     ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
+    ch.setLevel(loglevel)
     # create formatter and add it to the handlers
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)

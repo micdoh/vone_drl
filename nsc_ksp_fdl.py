@@ -1,7 +1,7 @@
 import numpy as np
 import networkx as nx
-import env
 import gym
+import logging
 from copy import deepcopy
 from itertools import islice
 
@@ -24,6 +24,7 @@ from itertools import islice
 #
 
 # TODO - Understand if Yitao implemented another heuristic. If so, what was it?
+logger = logging.getLogger(__name__)
 
 
 def get_k_shortest_paths(g, source, target, k, weight=None):
@@ -105,10 +106,141 @@ def get_gen_index(gen, value):
             return n
 
 
+def nsc_ksp_fdl(the_env):
+
+    observation = the_env.reset()
+
+    topology_0, _ = the_env.render()
+    topology = deepcopy(topology_0)
+
+    step = 0
+
+    while step < episode_length:
+        step += 1
+        node_mapping_success = link_mapping_success = False
+        request_size = the_env.current_VN_capacity.size
+        action_node = np.zeros(request_size, dtype=int)
+        action_k_path = np.zeros(request_size, dtype=int)
+        action_initial_slots = np.zeros(request_size, dtype=int)
+
+        # 1. Rank substrate nodes in descending order of node switching capacity (NSC)
+        rank_n_s = rank_substrate_nsc(topology)
+        # 2. Rank virtual nodes in descending order of required (capacity x port count)
+        rank_n_v = rank_vnet_node_requirements(observation, the_env)
+
+        # Check that substrate nodes can meet virtual node requirements
+        successful_nodes = 0
+        for n, node_request in enumerate(rank_n_v):
+            if rank_n_s[n][2] >= node_request[2]:
+                action_node[rank_n_v[n][1]] = rank_n_s[n][1]
+                successful_nodes += 1
+        if successful_nodes == request_size:
+            node_mapping_success = True
+            action_node.sort()  # So that nodes appear in same order as in node selection table row
+
+        # step 3, 4, 5:
+        vnet_bandwidth = get_vnet_bandwidth_requirements(observation, the_env)
+
+        if node_mapping_success is True:
+            link_mapping_success = True
+            BW_ranked_connection = []
+            for i in range(request_size - 1):
+                BW_ranked_connection.append(
+                    (vnet_bandwidth[i], action_node[i], action_node[i + 1], i)
+                )
+            BW_ranked_connection.append(
+                (vnet_bandwidth[i + 1], action_node[0], action_node[i + 1], i + 1)
+            )
+            BW_ranked_connection.sort(reverse=True)
+
+            for i in range(request_size):
+                BW = BW_ranked_connection[i][0]
+                source = BW_ranked_connection[i][1]
+                destination = BW_ranked_connection[i][2]
+                action_index = BW_ranked_connection[i][3]
+                all_paths = get_k_shortest_paths(topology, source, destination, k_paths)
+
+                FDL_candidates = []
+
+                # look into single path
+                for j in range(len(all_paths)):
+                    path = all_paths[j]
+                    slots_in_path = []
+                    for k in range(len(path) - 1):
+                        slots_in_path.append(topology.edges[path[k], path[k + 1]]['slots'])
+
+                    available_slots_in_path = slots_in_path[0]
+                    for k in range(len(slots_in_path)):
+                        available_slots_in_path = available_slots_in_path & slots_in_path[k]
+
+                    blocks_in_path = find_blocks(available_slots_in_path)
+                    initial_slots = []
+                    for k in range(len(blocks_in_path)):
+                        if blocks_in_path[k] == BW:
+                            initial_slots.append(k + sum(blocks_in_path[0:k]))
+                        elif blocks_in_path[k] > BW:
+                            initial_slots.append(k + sum(blocks_in_path[0:k]))
+                            initial_slots.append(k + sum(blocks_in_path[0:k]) + blocks_in_path[k] - BW)
+
+                    FD_before = calculate_path_FD(topology, path)
+                    initial_slots = np.array(initial_slots, dtype=int)
+                    if len(initial_slots) == 0:
+                        break
+
+                    for k in range(len(initial_slots)):
+                        g = deepcopy(topology)
+                        for l in range(len(path) - 1):
+                            g.edges[path[l], path[l + 1]]['slots'][initial_slots[k]:initial_slots[k] + BW] -= 1
+
+                        FD_after = calculate_path_FD(g, path)
+                        FDL_candidates.append((FD_after - FD_before, j, initial_slots[k]))
+
+                if len(FDL_candidates) == 0:
+                    link_mapping_success = False
+                    break
+
+                FDL_candidates.sort()
+                action_k_path[action_index] = FDL_candidates[0][1]
+                action_initial_slots[action_index] = FDL_candidates[0][2]
+                path_selected = all_paths[action_k_path[action_index]]
+                for j in range(len(path_selected) - 1):
+                    topology.edges[
+                        path_selected[j], path_selected[j + 1]
+                    ][
+                        'slots'
+                    ][
+                    action_initial_slots[action_index]: action_initial_slots[action_index] + BW
+                    ] -= 1
+
+        if link_mapping_success is True:
+            # Find row in node selection table that matches desired action
+            node_selection_gen = the_env.generate_node_selection(request_size)
+            action_node_int = get_gen_index(node_selection_gen, action_node)
+
+            # Find row in path selection table that matches desired action
+            path_selection_gen = the_env.generate_path_selection(request_size)
+            action_k_path_int = get_gen_index(path_selection_gen, action_k_path)
+
+            # Find row in slot selection table that matches desired action
+            slot_selection_gen = the_env.generate_slot_selection(request_size)
+            action_initial_slots_int = get_gen_index(slot_selection_gen, action_initial_slots)
+
+        else:
+            action_node_int = action_k_path_int = action_initial_slots_int = 0
+
+        observation, reward, done, info = the_env.step(
+            [action_node_int, action_k_path_int, action_initial_slots_int])
+        topology_0, _ = the_env.render()
+        topology = deepcopy(topology_0)
+
+    logger.warning(info)
+    return info
+
+
 if __name__ == "__main__":
 
     num_episodes = 1
-    k_paths = 2
+    k_paths = 5
     episode_length = 5000
     env_args = dict(
         episode_length=episode_length,
@@ -119,130 +251,6 @@ if __name__ == "__main__":
     )
     the_env = gym.make('vone_Env-v0', **env_args)
 
-    for episodes in range(num_episodes):
-        observation = the_env.reset()
+    nsc_ksp_fdl(the_env)
 
-        topology_0, _ = the_env.render()
-        topology = deepcopy(topology_0)
-
-        step = 0
-
-        while step < episode_length:
-            step += 1
-            node_mapping_success = link_mapping_success = False
-            request_size = the_env.current_VN_capacity.size
-            action_node = np.zeros(request_size, dtype=int)
-            action_k_path = np.zeros(request_size, dtype=int)
-            action_initial_slots = np.zeros(request_size, dtype=int)
-
-            # 1. Rank substrate nodes in descending order of node switching capacity (NSC)
-            rank_n_s = rank_substrate_nsc(topology)
-            # 2. Rank virtual nodes in descending order of required (capacity x port count)
-            rank_n_v = rank_vnet_node_requirements(observation, the_env)
-
-            # Check that substrate nodes can meet virtual node requirements
-            successful_nodes = 0
-            for n, node_request in enumerate(rank_n_v):
-                if rank_n_s[n][2] >= node_request[2]:
-                    action_node[rank_n_v[n][1]] = rank_n_s[n][1]
-                    successful_nodes += 1
-            if successful_nodes == request_size:
-                node_mapping_success = True
-                action_node.sort()  # So that nodes appear in same order as in node selection table row
-
-            # step 3, 4, 5:
-            vnet_bandwidth = get_vnet_bandwidth_requirements(observation, the_env)
-
-            if node_mapping_success is True:
-                link_mapping_success = True
-                BW_ranked_connection = []
-                for i in range(request_size-1):
-                    BW_ranked_connection.append(
-                        (vnet_bandwidth[i], action_node[i], action_node[i+1], i)
-                    )
-                BW_ranked_connection.append(
-                    (vnet_bandwidth[i+1], action_node[0], action_node[i+1], i+1)
-                )
-                BW_ranked_connection.sort(reverse=True)
-
-                for i in range(request_size):
-                    BW = BW_ranked_connection[i][0]
-                    source = BW_ranked_connection[i][1]
-                    destination = BW_ranked_connection[i][2]
-                    action_index = BW_ranked_connection[i][3]
-                    all_paths = get_k_shortest_paths(topology, source, destination, k_paths)
-
-                    FDL_candidates = []
-
-                    # look into single path
-                    for j in range(len(all_paths)):
-                        path = all_paths[j]
-                        slots_in_path = []
-                        for k in range(len(path) - 1):
-                            slots_in_path.append(topology.edges[path[k], path[k + 1]]['slots'])
-
-                        available_slots_in_path = slots_in_path[0]
-                        for k in range(len(slots_in_path)):
-                            available_slots_in_path = available_slots_in_path & slots_in_path[k]
-
-                        blocks_in_path = find_blocks(available_slots_in_path)
-                        initial_slots = []
-                        for k in range(len(blocks_in_path)):
-                            if blocks_in_path[k] == BW:
-                                initial_slots.append(k + sum(blocks_in_path[0:k]))
-                            elif blocks_in_path[k] > BW:
-                                initial_slots.append(k + sum(blocks_in_path[0:k]))
-                                initial_slots.append(k + sum(blocks_in_path[0:k]) + blocks_in_path[k] - BW)
-
-                        FD_before = calculate_path_FD(topology, path)
-                        initial_slots = np.array(initial_slots, dtype=int)
-                        if len(initial_slots) == 0:
-                            break
-
-                        for k in range(len(initial_slots)):
-                            g = deepcopy(topology)
-                            for l in range(len(path) - 1):
-                                g.edges[path[l], path[l + 1]]['slots'][initial_slots[k]:initial_slots[k] + BW] -= 1
-
-                            FD_after = calculate_path_FD(g, path)
-                            FDL_candidates.append((FD_after - FD_before, j, initial_slots[k]))
-
-                    if len(FDL_candidates) == 0:
-                        link_mapping_success = False
-                        break
-
-                    FDL_candidates.sort()
-                    action_k_path[action_index] = FDL_candidates[0][1]
-                    action_initial_slots[action_index] = FDL_candidates[0][2]
-                    path_selected = all_paths[action_k_path[action_index]]
-                    for j in range(len(path_selected) - 1):
-                        topology.edges[
-                            path_selected[j], path_selected[j + 1]
-                        ][
-                            'slots'
-                        ][
-                        action_initial_slots[action_index]: action_initial_slots[action_index] + BW
-                        ] -= 1
-
-            if link_mapping_success is True:
-                # Find row in node selection table that matches desired action
-                node_selection_gen = the_env.generate_node_selection(request_size)
-                action_node_int = get_gen_index(node_selection_gen, action_node)
-
-                # Find row in path selection table that matches desired action
-                path_selection_gen = the_env.generate_path_selection(request_size)
-                action_k_path_int = get_gen_index(path_selection_gen, action_k_path)
-
-                # Find row in slot selection table that matches desired action
-                slot_selection_gen = the_env.generate_slot_selection(request_size)
-                action_initial_slots_int = get_gen_index(slot_selection_gen, action_initial_slots)
-
-            else:
-                action_node_int = action_k_path_int = action_initial_slots_int = 0
-
-            observation, reward, done, info = the_env.step([action_node_int, action_k_path_int, action_initial_slots_int])
-            topology_0, _ = the_env.render()
-            topology = deepcopy(topology_0)
-
-    print(info)
     the_env.close()

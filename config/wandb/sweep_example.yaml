@@ -1,0 +1,35 @@
+    project: VONE-DRL
+    program: main.py
+    method: bayes
+    metric:
+      name: mean_reward
+      goal: maximize
+    parameters:
+      learning_rate:
+        min: 0.0001
+        max: 0.01
+      gamma:
+        min: 0.5
+        max: 1.0
+      gae_lambda:
+        min: 0.9
+        max: 1.0
+      n_steps:
+        values:
+          - 10
+          - 50
+          - 100
+    command:
+      - ${env}
+      - ${interpreter}
+      - ${program}
+      - "--file"
+      - "/User/git/vone_drl/config/config0.yaml"
+      - "--log"
+      - "WARN"
+      - ${args}
+    early_terminate:
+      eta: 3
+      max_iter: 27
+      s: 2
+      type: hyperband
