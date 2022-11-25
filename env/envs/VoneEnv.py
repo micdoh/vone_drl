@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # TODO - Implement scaling of capacity and separate evaluation environment
 # TODO - Implement invalid action masking: 1. find valid rows in tables and corresponding indexes, 2. generate mask
 # TODO - Allow first-fit as default slot selection (remove slot selection from action space)
+# TODO - Log arrival rate and load as metrics
 
 def get_nth_item(gen, n):
     """Return the nth item from a generator"""
@@ -129,12 +130,14 @@ class VoneEnv(gym.Env):
 
     def reset(self):
         """Called at beginning of each episode"""
-        if self.wandb_log:
-            wandb.log({
+        results = {
                 "episode_number": self.num_resets,
                 "acceptance_ratio": self.services_accepted / self.services_processed if self.services_processed > 0 else 0,
                 "mean_reward": self.total_reward / self.services_processed if self.services_processed > 0 else 0,
-            })
+            }
+        logger.warning(f"End of episode {self.num_resets}. Results: {results}")
+        if self.wandb_log:
+            wandb.log(results)
         self.current_time = 0
         self.allocated_Service = []
         self.services_processed = 0
