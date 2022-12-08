@@ -345,11 +345,16 @@ class VoneEnv(gym.Env):
 
         # check substrate node capacity
         cap = np.array([self.topology.topology_graph.nodes[i]['capacity'] for i in nodes_selected])
+
         # rearrange request node-ordering until satisfied that nodes can/cannot satisfy request
-        for n, req in enumerate(multiset_permutations(self.current_VN_capacity)):
-            node_free = (cap >= req).all()
+        requests = list(zip(self.current_VN_capacity[::], self.current_VN_bandwidth))
+        for n, req in enumerate(multiset_permutations(requests)):
+            node_req = [item[0] for item in req]
+            bw_req = [item[1] for item in req]
+            node_free = (cap >= node_req).all()
             if node_free:
-                self.current_VN_capacity = np.array(req)
+                self.current_VN_capacity = np.array(node_req)
+                self.current_VN_bandwidth = np.array(bw_req)
                 break
 
         # make sure different path slots are used & check substrate link BW
