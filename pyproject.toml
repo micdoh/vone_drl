@@ -29,6 +29,7 @@ nvidia-cuda-runtime-cu11 = {version = "^2022.4.25", markers = "sys_platform != '
 tensorflow = "^2.10.0"
 ray = {version = "^2.1.0", markers = "sys_platform != 'win64'"}
 scikit-learn = "^1.1.3"
+sympy = "^1.11.1"
 
 [[tool.poetry.source]]
 name = "nvidia"

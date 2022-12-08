@@ -3,25 +3,36 @@ import heapq
 import random
 import networkx as nx
 import numpy as np
+import pandas as pd
 import copy
 import logging
 import wandb
 import stable_baselines3.common
 from math import comb
-from itertools import combinations, product, islice
+from functools import reduce
+from itertools import combinations, product, islice, permutations
 from service import Service
 from pathlib import Path
-from collections import Counter, defaultdict
+from collections import defaultdict
+from sympy.utilities.iterables import multiset_permutations
 from networktoolbox.NetworkToolkit.Topology import Topology
 
 
 logger = logging.getLogger(__name__)
 
+# TODO - Implement routing-only environment: try both path-selection-only and slot-and-path selection
+# TODO - Functionalise KSP-FF, KSP-FDL, KMC-FF, KMF-FF
+# TODO - Plan experiments
 
-# TODO - Implement scaling of capacity and separate evaluation environment
+# TODO - Implement scaling of capacity
 # TODO - Implement invalid action masking: 1. find valid rows in tables and corresponding indexes, 2. generate mask
-# TODO - Allow first-fit as default slot selection (remove slot selection from action space)
+# TODO - Accommodate transparent VONE case (continuity constraint)
+
 # TODO - Log arrival rate and load as metrics
+# TODO - Log different failure modes i.e. slot clash, insufficient node capacity, insufficient slots
+# TODO - Return the intra-episode acceptance rate, not just post post-episode.
+#  i.e. plot acceptance rate against number of request received. Could also incorporate into reward.
+
 
 def get_nth_item(gen, n):
     """Return the nth item from a generator"""
@@ -75,6 +86,8 @@ class VoneEnv(gym.Env):
         self.total_reward = 0
         self.num_resets = 0
         self.wandb_log = wandb_log
+        self.current_observation = {}
+        self.results = {}
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
@@ -98,6 +111,8 @@ class VoneEnv(gym.Env):
 
         # observation_space
         node_resource_capacity = [self.node_capacity+1]*self.num_nodes
+        # TODO - Would it be beneficial to also include the original node capacity in the observation?
+        #  Recent GNN-DRL VONE paper does so
         self.obs_request_and_nrc = gym.spaces.MultiDiscrete(
             (
                 (self.max_node_cap_request - self.min_node_cap_request + 1) ** self.max_vnet_size,
@@ -105,17 +120,27 @@ class VoneEnv(gym.Env):
                 *node_resource_capacity
             )
         )
-        self.obs_slots = gym.spaces.Box(low=0, high=1, shape=(self.num_slots * self.num_links,), dtype=int)
+        self.obs_slots = gym.spaces.Box(low=0, high=1, shape=(self.num_slots, self.num_links), dtype=int)
         self.observation_space = gym.spaces.Dict(
             {'Vcap_Vbw_Scap': self.obs_request_and_nrc,
              'slots': self.obs_slots}
         )
 
+        self.define_action_space()
+
+        # create initialized virtual network observation
+        self.current_VN_capacity = np.zeros(self.max_vnet_size, dtype=int)
+        self.current_VN_bandwidth = np.zeros(self.max_vnet_size, dtype=int)
+
+    def define_action_space(self):
         self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
         self.generate_vnet_cap_request_tables()
         self.generate_vnet_bw_request_tables()
 
         # action space sizes are maximum corresponding table size for maximum request size
+        # TODO - IDEA: Action space to become node-pair k-path choice (i.e. concurrent action space),
+        #  such that it can be masked.
+        #  This leads to comb(comb(self.num_nodes, 2), self.max_vnet_size) * k total actions for node-path selection
         self.action_space = gym.spaces.MultiDiscrete(
             (
                 comb(self.num_nodes, self.max_vnet_size),
@@ -123,10 +148,6 @@ class VoneEnv(gym.Env):
                 (self.num_slots-self.min_slot_request+1) ** self.max_vnet_size,
             )
         )
-
-        # create initialized virtual network observation
-        self.current_VN_capacity = np.zeros(self.max_vnet_size, dtype=int)
-        self.current_VN_bandwidth = np.zeros(self.max_vnet_size, dtype=int)
 
     def reset(self):
         """Called at beginning of each episode"""
@@ -148,6 +169,7 @@ class VoneEnv(gym.Env):
         self.request_generator()
         self.total_reward = 0
         self.num_resets += 1
+        self.results = results
         observation = self.observation()
 
         return observation
@@ -199,6 +221,46 @@ class VoneEnv(gym.Env):
             # dict keyed by vnet size as different node selection table for each vnet size
         return combinations([x for x in range(self.num_nodes)], vnet_size)
 
+    def generate_node_mask(self, vnet_size, node_capacities):
+        """Return the mask of permitted node actions.
+        Check each virtual node requirement in turn,
+        find capable nodes,
+        get combination of suitable nodes that fit."""
+        # vnet_size = 3
+        # node_table = np.array(list(self.generate_node_selection(vnet_size)))
+        # node_capacities = np.array([4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1])
+        # self.current_VN_capacity = np.array([2, 2, 2])
+        #cc = [x.min('columns') for x in cc]
+        #valid_actions = pd.concat(cc, axis=1)
+        # overall_capacity_check = pd.concat(overall_capacity_check, axis=1)
+        # overall_capacity_check = overall_capacity_check.sum(axis='columns')
+        # valid_actions = pd.DataFrame(list(combinations(overall_capacity_check, vnet_size)))
+        #cc = [pd.DataFrame(list(combinations(x, vnet_size))) for x in overall_capacity_check]
+        #allcheck_multiply = reduce((lambda x, y: x * y), allcheck_comb)
+
+        overall_cap_check = []
+        for req_cap in self.current_VN_capacity:
+            cap_check = []
+            for i, cap in enumerate(node_capacities):
+                cap_check.append((0 if cap-req_cap < 0 else 1))
+            overall_cap_check.append(cap_check)
+        df_cap_check = pd.concat([pd.Series(x) for x in overall_cap_check], axis='columns')
+        # count of how many v-nodes a node can satisfy
+        df_check_count = df_cap_check.sum(axis='columns')
+        # get node combinations and their count of sufficiency
+        df_check_combinations = pd.DataFrame(list(combinations(df_check_count, vnet_size)))
+        # multiply the total that can be satisfied by node combo
+        df_check_product = df_check_combinations.prod(axis=1)
+        # If product of checks greater than threshold, action is valid
+        valid_actions = df_check_product.map(lambda x: 1 if x >= vnet_size**(vnet_size-1) else 0)
+        return valid_actions
+
+    def generate_slot_mask(self, vnet_size, slot_capacities):
+        for req_slots in self.current_VN_bandwidth:
+            for slots in slot_capacities:
+                print(slots)
+        return slot_capacities
+
     def generate_path_selection(self, vnet_size):
         """Populate path_selection_dict with vnet_size: array pairs.
         Array elements indicate which kth path is taken between each virtual node.
@@ -207,6 +269,11 @@ class VoneEnv(gym.Env):
             # Use Cartesian product of k-path selection because order matters
             # dict keyed by vnet size as different path selection table for each vnet size
         return product(range(self.k_paths), repeat=vnet_size)
+            
+    def generate_slot_selection(self, vnet_size):
+        """Populate slot_selection_dict with vnet_size: array pairs.
+        Array rows are initial slot selection choices"""
+        return product(range(self.num_slots-self.min_slot_request+1), repeat=vnet_size)
 
     def generate_link_selection_table(self):
         """Populate link_selection_dict with node-pair-id: array pairs.
@@ -214,11 +281,6 @@ class VoneEnv(gym.Env):
         for node_pair in combinations(self.topology.topology_graph.nodes, 2):
             k_paths = self.get_k_shortest_paths(self.topology.topology_graph, node_pair[0], node_pair[1], self.k_paths)
             self.link_selection_dict[node_pair] = k_paths
-            
-    def generate_slot_selection(self, vnet_size):
-        """Populate slot_selection_dict with vnet_size: array pairs.
-        Array rows are initial slot selection choices"""
-        return product(range(self.num_slots-self.min_slot_request+1), repeat=vnet_size)
 
     def generate_vnet_cap_request_tables(self):
         for vnet_size in range(self.min_vnet_size, self.max_vnet_size + 1):
@@ -235,6 +297,24 @@ class VoneEnv(gym.Env):
                     product(range(self.min_slot_request, self.max_slot_request+1), repeat=vnet_size)
                 )
             )
+
+    def select_nodes_paths_slots(self, action):
+        """Get selected nodes, paths, and slots from action"""
+        request_size = self.current_VN_capacity.size
+        # Get node selection (dependent on number of nodes in request)
+        nodes_selected = get_nth_item(self.generate_node_selection(request_size), action[0])
+        logger.info(f' Nodes selected: {nodes_selected}')
+
+        # k_paths selected from the action
+        k_path_selected = get_nth_item(self.generate_path_selection(request_size), action[1])
+        logger.info(f' Paths selected: {k_path_selected}')
+
+        # initial slot selected from the action
+        initial_slot_selected = get_nth_item(self.generate_slot_selection(request_size), action[2])
+        logger.info(f' Initial slots selected: {initial_slot_selected}')
+
+        # Return empty dict at end for compatibility with other environments
+        return nodes_selected, k_path_selected, initial_slot_selected, {}
 
     def step(self, action):
         """step function has two part.
@@ -261,21 +341,16 @@ class VoneEnv(gym.Env):
 
         request_size = self.current_VN_capacity.size
 
-        # Get node selection (dependent on number of nodes in request)
-        nodes_selected = get_nth_item(self.generate_node_selection(request_size), action[0])
-        logger.info(f' Nodes selected: {nodes_selected}')
-
-        # k_paths selected from the action
-        k_path_selected = get_nth_item(self.generate_path_selection(request_size), action[1])
-        logger.info(f' Paths selected: {k_path_selected}')
-
-        # initial slot selected from the action
-        initial_slot_selected = get_nth_item(self.generate_slot_selection(request_size), action[2])
-        logger.info(f' Initial slots selected: {initial_slot_selected}')
+        nodes_selected, k_path_selected, initial_slot_selected, fail_info = self.select_nodes_paths_slots(action)
 
         # check substrate node capacity
         cap = np.array([self.topology.topology_graph.nodes[i]['capacity'] for i in nodes_selected])
-        node_free = (cap >= self.current_VN_capacity).all()
+        # rearrange request node-ordering until satisfied that nodes can/cannot satisfy request
+        for n, req in enumerate(multiset_permutations(self.current_VN_capacity)):
+            node_free = (cap >= req).all()
+            if node_free:
+                self.current_VN_capacity = np.array(req)
+                break
 
         # make sure different path slots are used & check substrate link BW
         self.num_path_accepted = 0
@@ -283,32 +358,51 @@ class VoneEnv(gym.Env):
         # If node check fails, skip path check
         if node_free:
 
-            # 1. Check slots are free
-            # 2. Check slots aren't reused in same request
+            if fail_info:
+                logger.info(fail_info.get('message'))
+                path_free = False
 
-            for i in range(request_size):
+            else:
+                # 1. Check slots are free
+                # 2. Check slots aren't reused in same request
 
-                path_list = []
-                for j in range(len(nodes_selected) - 1):
+                for i in range(request_size):
+
+                    path_list = []
+                    for j in range(len(nodes_selected) - 1):
+                        path_list.append(
+                            self.link_selection_dict[
+                                nodes_selected[j],
+                                nodes_selected[j+1]
+                            ]
+                            [
+                                k_path_selected[j]
+                            ]
+                        )
                     path_list.append(
-                        self.link_selection_dict[
-                            nodes_selected[j],
-                            nodes_selected[j+1]
-                        ]
-                        [
-                            k_path_selected[j]
-                        ]
+                        self.link_selection_dict[nodes_selected[0], nodes_selected[-1]]
+                        [k_path_selected[-1]]
                     )
-                path_list.append(self.link_selection_dict[nodes_selected[0], nodes_selected[-1]][k_path_selected[-1]])
 
-                current_path_free = self.is_path_free(path_list[i], initial_slot_selected[i], self.current_VN_bandwidth[i])
+                    current_path_free = self.is_path_free(
+                        path_list[i],
+                        initial_slot_selected[i],
+                        self.current_VN_bandwidth[i]
+                    )
 
-                if current_path_free:
-                    self.num_path_accepted += 1
+                    if current_path_free:
+                        self.num_path_accepted += 1
 
-                path_free = path_free & current_path_free
+                    path_free = path_free & current_path_free
 
-            path_free = path_free & self.is_slot_not_reused(path_list, initial_slot_selected, self.current_VN_bandwidth)
+                path_free = path_free & self.is_slot_not_reused(path_list, initial_slot_selected, self.current_VN_bandwidth)
+
+        else:
+            print(f'\n\n\n\n\n\n {nodes_selected, self.current_VN_capacity, [self.current_observation["Vcap_Vbw_Scap"][2:][x] for x in nodes_selected]}')
+            print(self.current_observation["Vcap_Vbw_Scap"][2:])
+            print(list(self.generate_node_selection(request_size)))
+            print(' \n\n\n\n\n\n')
+            logger.info(' Request failure: Insufficient capacity at selected node')
 
         # accepted?
         self.accepted = node_free & path_free
@@ -329,7 +423,7 @@ class VoneEnv(gym.Env):
         self.request_generator()
         reward = self.reward()
         self.total_reward += reward
-        logger.info(f"Reward: {reward}")
+        logger.info(f" Reward: {reward}")
 
         self.services_processed += 1
 
@@ -365,7 +459,7 @@ class VoneEnv(gym.Env):
 
     def get_k_shortest_paths(self, g, source, target, k, weight=None):
         """
-        Return list of k shortest paths from source to target
+        Return list of k-shortest paths from source to target
         Method from https://networkx.github.io/documentation/stable/reference/algorithms/generated/networkx.algorithms
         .simple_paths.shortest_simple_paths.html#networkx.algorithms.simple_paths.shortest_simple_paths
         """
@@ -376,16 +470,28 @@ class VoneEnv(gym.Env):
         capacity = self.topology.topology_graph.nodes[n]['capacity']
         return True if capacity > capacity_required else False
 
-    def is_path_free(self, path, initial_slot, num_slots):
+    def is_path_free(self, path, initial_slot, num_slots, log=True):
+        """Check path that initial slot is free and start of block of sufficient capacity"""
         if initial_slot + num_slots > self.num_slots:
+            if log:
+                logger.info(' Request failure: Selected initial slot does not have '
+                            'sufficient neighbouring slots until end of band')
             return False
 
         path_slots = np.ones(self.num_slots, dtype=int)
         for i in range(len(path) - 1):
             path_slots = path_slots & self.topology.topology_graph.edges[path[i], path[i + 1]]['slots']
 
-        if np.sum(path_slots[initial_slot: initial_slot+num_slots]) < num_slots:
+        if path_slots[initial_slot] == 0:
+            if log:
+                logger.info(' Request failure: Selected initial slot is occupied')
             return False
+
+        elif np.sum(path_slots[initial_slot: initial_slot+num_slots]) < num_slots:
+            if log:
+                logger.info(' Request failure: Selected initial slot is of insufficient block size')
+            return False
+
         return True
 
     def is_slot_not_reused(self, paths, initial_slots, num_slots):
@@ -394,6 +500,7 @@ class VoneEnv(gym.Env):
         2. Get initial slots and requested number of slots for reused links
         3. Check for overlap"""
         node_pairs = defaultdict(list)
+        # Get dictionary of link: [path_indices]
         for n, path in enumerate(paths):
             for i in range(len(path)-1):
                 node_pairs[(path[i], path[i+1])].append(n)
@@ -406,6 +513,7 @@ class VoneEnv(gym.Env):
                 # Get slots used in same link for each path then check for duplicates
                 req_slots = [slot for n in n_paths for slot in range(initial_slots[n], initial_slots[n]+num_slots[n])]
                 if len(req_slots) != len(set(req_slots)):
+                    logger.info(' Request failure: Assigned slots clash in reused link')
                     return False
 
         return True
@@ -432,6 +540,7 @@ class VoneEnv(gym.Env):
                 self.topology.topology_graph.edges[s, d]['slots'] -= slots_occupied
 
     def set_load(self, load, mean_service_holding_time):
+        """Load = Hold time / inter-arrival time"""
         self.mean_service_inter_arrival_time = 1 / float(load / float(mean_service_holding_time))
 
     def release_service(self, service: Service):
@@ -464,8 +573,10 @@ class VoneEnv(gym.Env):
             if time <= self.current_time:
                 self.release_service(service_to_release)
             else:
-                heapq.heappush(self.allocated_Service, (service_to_release.arrival_time
-                                                        + service_to_release.holding_time, service_to_release))
+                heapq.heappush(self.allocated_Service,
+                               (service_to_release.arrival_time + service_to_release.holding_time,
+                                service_to_release)
+                               )
                 break
 
     def request_generator(self):
@@ -475,6 +586,9 @@ class VoneEnv(gym.Env):
 
         for i in range(len(self.current_VN_bandwidth)):
             self.current_VN_bandwidth[i] = self.rng.randint(*(self.min_slot_request, self.max_slot_request))
+
+    def get_node_capacities(self):
+        return np.array(list(nx.get_node_attributes(self.topology.topology_graph, 'capacity').values()))
 
     def observation(self):
         # VN observation + SN observation
@@ -490,15 +604,49 @@ class VoneEnv(gym.Env):
         Vbw_int = np.where((slot_request_table == self.current_VN_bandwidth).all(axis=1))[0]
 
         # Get node capacities from graph attribute
-        Scap_array = np.array(list(nx.get_node_attributes(self.topology.topology_graph, 'capacity').values()))
+        Scap_array = self.get_node_capacities()
 
         obs_dict['Vcap_Vbw_Scap'] = np.array([*Vcap_int, *Vbw_int, *Scap_array])
 
         Sslots_matrix = np.array([self.topology.topology_graph.adj[edge[0]][edge[1]]['slots'] for edge in self.topology.topology_graph.edges])
         obs_dict['slots'] = Sslots_matrix.reshape(self.obs_slots.shape)
+        self.current_observation = obs_dict
         return obs_dict
 
     def valid_action_mask(self):
+        # Action selection is node selection, path selection, slot selection
+        # TODO - make current request size an attribute
+        request_size = self.current_VN_capacity.size
+        node_capacities = self.current_observation["Vcap_Vbw_Scap"][2:]
+        slot_capacities = self.current_observation["slots"]
+        # Masks need to be [true, false, ...] lists, with one list for each discrete action space.
+        # So need to return [[], [], []] from this function
+        # The logic to generate the lists can be derived from the logic used to generate the action tables maybe...
+        # Check nodes
+        node_table = np.array(list(self.generate_node_selection(request_size)))
+        node_mask = self.generate_node_mask(request_size, node_capacities)
+        # Check slots: if block out slot selection and, if slots blocked on a path, block
+        slot_table = np.array(list(self.generate_slot_selection(request_size)))
+        slot_mask = self.generate_slot_mask(request_size, slot_capacities)
+        # Notes on masking:
+        # The decision-making sequence of nodes-path-slots requires the path selection to be known
+        # before the slot selection can be fully masked. Without knowing the selected path (and therefore links),
+        # the only way the slot selection can be masked is by masking any initial slots on individual links that
+        # don't have sufficient contiguous slots. So, essentially this is the only way masking can be achieved atm.
+        # To achieve true masking, we'll need to open up the policy network code to access the sequential
+        # decision-making, get the selected path, mask the slots, select an option, and then optionally,
+        # if no slots available for the chosen path, mask that path and renormalise the probabilities for the k-1
+        # paths remaining and re-mask the slots again until an action is possible.
+
+        path_table = np.array(list(self.generate_path_selection(request_size)))
+        link_table = self.link_selection_dict
+        #index = np.searchsorted(data, values)
+        return [True]
+
+    def check_network_utilisation(self):
+        # TODO - IDEA: Change the reward on the basis of this metric.
+        #  Shaped reward for empty network and simple reward for full network (to allow more honest exploration)
+        "Define metric for how 'full' the substrate network is"
         return True
 
     def print_topology(self):
@@ -516,6 +664,92 @@ class VoneEnv(gym.Env):
         logger.info(f'SN_C: {SN_C}')
         logger.info(f'SN_slots: {SN_slots}')
         logger.info(f'No. of services: {len(self.allocated_Service)}')
+
+
+class VoneEnvNodeSelectionOnly(VoneEnv):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def define_action_space(self):
+        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
+        self.generate_vnet_cap_request_tables()
+        self.generate_vnet_bw_request_tables()
+
+        # action space sizes are maximum corresponding table size for maximum request size
+        self.action_space = gym.spaces.Discrete(
+            comb(self.num_nodes, self.max_vnet_size),
+        )
+
+    def select_nodes_paths_slots(self, action):
+        """Get selected nodes, paths, and slots from action.
+        KSP-FF"""
+        request_size = self.current_VN_capacity.size
+        # Get node selection (dependent on number of nodes in request)
+        nodes_selected = get_nth_item(self.generate_node_selection(request_size), action)
+        logger.info(f' Nodes selected: {nodes_selected}')
+
+        # Implement ksp-ff here
+        # 1. For each node pair, get k-path, iterate through slots until fits, if no fit then go to next k-path
+        # Could use find_blocks here to speed things up?
+        k_path_selected = []
+        initial_slot_selected = []
+        fail_info = {}
+        # Loop through requests
+        for i_req in range(request_size):
+
+            current_path_free = False
+
+            # Check each k-path
+            for k in range(self.k_paths):
+
+                if current_path_free:
+                    break
+
+                # Get Links
+                path_list = []
+                for j in range(len(nodes_selected) - 1):
+                    path_list.append(
+                        self.link_selection_dict[
+                            nodes_selected[j],
+                            nodes_selected[j + 1]
+                        ]
+                        [
+                            k
+                        ]
+                    )
+                path_list.append(self.link_selection_dict[nodes_selected[0], nodes_selected[-1]][k])
+
+                for i_slot in range(self.num_slots-self.current_VN_bandwidth[i_req]):
+                    # Check each slot in turn to see if free
+                    current_path_free = self.is_path_free(
+                        path_list[i_req],
+                        i_slot,
+                        self.current_VN_bandwidth[i_req],
+                        log=False
+                    )
+
+                    if current_path_free:
+                        k_path_selected.append(k)
+                        initial_slot_selected.append(i_slot)
+                        break
+
+            if not current_path_free:
+                k_path_selected.append(-1)
+                initial_slot_selected.append(-1)
+                fail_info = {"message": " "}
+
+        logger.info(f' Paths selected: {k_path_selected}')
+        logger.info(f' Initial slots selected: {initial_slot_selected}')
+
+        return nodes_selected, k_path_selected, initial_slot_selected, fail_info
+
+    def valid_action_mask(self):
+        request_size = self.current_VN_capacity.size
+        node_capacities = self.current_observation["Vcap_Vbw_Scap"][2:]
+        node_mask = self.generate_node_mask(request_size, node_capacities)
+        self.node_mask = node_mask
+        return node_mask
 
 
 if __name__ == "__main___":

@@ -4,6 +4,7 @@ import gym
 import logging
 from copy import deepcopy
 from itertools import islice
+from env.envs.VoneEnv import VoneEnv
 
 # NSC-KSP-FDL
 # method from: https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7718438
@@ -34,8 +35,8 @@ def get_k_shortest_paths(g, source, target, k, weight=None):
     return list(islice(nx.shortest_simple_paths(g, source, target, weight=weight), k))
 
 
-def find_blocks(slots):
-    blocks = np.zeros(16)
+def find_blocks(slots, num_slots):
+    blocks = np.zeros(num_slots)
     n = 0
     for m in range(len(slots)):
         if slots[m] == 1:
@@ -46,14 +47,17 @@ def find_blocks(slots):
     return blocks
 
 
-def calculate_path_FD(g, path):
+def calculate_path_FD(g, path, num_slots):
+    """Calculate fragmentation degree for path
+    Fragmentation degree for a link is number of blocks divided by number of slots.
+    For path, it's sum of FD on the links"""
     FD_sum = 0
     for i in range(len(path) - 1):
         slots = g.edges[path[i], path[i + 1]]['slots']
         VST = sum(slots)
         if VST == 0:
             return 1000
-        VSB = find_blocks(slots)
+        VSB = find_blocks(slots, num_slots)
         VSB = len(np.where(VSB > 0)[0])
         FD = VSB / VST
         FD_sum += FD
@@ -62,19 +66,23 @@ def calculate_path_FD(g, path):
 
 
 def rank_substrate_nsc(topology):
-    """Rank substrate nodes by node switching capacity (NSC)"""
+    """Rank substrate nodes by node switching capacity (NSC)
+    The NSC of a node is (node capacity * node degree * sum of vacant FSUs on ports)"""
     rank_n_s = []
     for i in topology.nodes:
-        VSN_sum = 0
-        for j in range(topology.degree(i)):
-            neighbor = list(topology.adj[i])[j]
-            VSN_sum = VSN_sum + sum(topology.edges[i, neighbor]['slots'])
 
-        # S_n_s = PN * VSN_sum
-        S_n_s = topology.degree(i) * VSN_sum
-        C_n_s = topology.nodes[i]['capacity']
-        # rank_n_s = S_n_s * C_n_s
-        rank_n_s.append((C_n_s * S_n_s, i, C_n_s))
+        vacant_neighboring_slots_sum = 0
+
+        for j in range(topology.degree(i)):
+
+            neighbor = list(topology.adj[i])[j]
+            vacant_neighboring_slots_sum += sum(topology.edges[i, neighbor]['slots'])
+
+        switching_capability = topology.degree(i) * vacant_neighboring_slots_sum
+        node_capacity = topology.nodes[i]['capacity']
+        node_switching_capacity = node_capacity * switching_capability
+        rank_n_s.append((node_switching_capacity, i, node_capacity))
+
     rank_n_s.sort(reverse=True)
 
     return rank_n_s
@@ -115,7 +123,7 @@ def nsc_ksp_fdl(the_env):
 
     step = 0
 
-    while step < episode_length:
+    while step < the_env.episode_length:
         step += 1
         node_mapping_success = link_mapping_success = False
         request_size = the_env.current_VN_capacity.size
@@ -158,7 +166,7 @@ def nsc_ksp_fdl(the_env):
                 source = BW_ranked_connection[i][1]
                 destination = BW_ranked_connection[i][2]
                 action_index = BW_ranked_connection[i][3]
-                all_paths = get_k_shortest_paths(topology, source, destination, k_paths)
+                all_paths = get_k_shortest_paths(topology, source, destination, the_env.k_paths)
 
                 FDL_candidates = []
 
@@ -173,7 +181,7 @@ def nsc_ksp_fdl(the_env):
                     for k in range(len(slots_in_path)):
                         available_slots_in_path = available_slots_in_path & slots_in_path[k]
 
-                    blocks_in_path = find_blocks(available_slots_in_path)
+                    blocks_in_path = find_blocks(available_slots_in_path, the_env.num_slots)
                     initial_slots = []
                     for k in range(len(blocks_in_path)):
                         if blocks_in_path[k] == BW:
@@ -182,7 +190,7 @@ def nsc_ksp_fdl(the_env):
                             initial_slots.append(k + sum(blocks_in_path[0:k]))
                             initial_slots.append(k + sum(blocks_in_path[0:k]) + blocks_in_path[k] - BW)
 
-                    FD_before = calculate_path_FD(topology, path)
+                    FD_before = calculate_path_FD(topology, path, the_env.num_slots)
                     initial_slots = np.array(initial_slots, dtype=int)
                     if len(initial_slots) == 0:
                         break
@@ -192,7 +200,7 @@ def nsc_ksp_fdl(the_env):
                         for l in range(len(path) - 1):
                             g.edges[path[l], path[l + 1]]['slots'][initial_slots[k]:initial_slots[k] + BW] -= 1
 
-                        FD_after = calculate_path_FD(g, path)
+                        FD_after = calculate_path_FD(g, path, the_env.num_slots)
                         FDL_candidates.append((FD_after - FD_before, j, initial_slots[k]))
 
                 if len(FDL_candidates) == 0:
@@ -209,7 +217,7 @@ def nsc_ksp_fdl(the_env):
                     ][
                         'slots'
                     ][
-                    action_initial_slots[action_index]: action_initial_slots[action_index] + BW
+                        action_initial_slots[action_index]: action_initial_slots[action_index] + BW
                     ] -= 1
 
         if link_mapping_success is True:
