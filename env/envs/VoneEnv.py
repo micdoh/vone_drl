@@ -16,6 +16,7 @@ from pathlib import Path
 from collections import defaultdict
 from sympy.utilities.iterables import multiset_permutations
 from networktoolbox.NetworkToolkit.Topology import Topology
+from nsc_ksp_fdl import select_nodes_nsc, select_path_fdl
 
 
 logger = logging.getLogger(__name__)
@@ -742,7 +743,7 @@ class VoneEnvNodeSelectionOnly(VoneEnv):
             if not current_path_free:
                 k_path_selected.append(-1)
                 initial_slot_selected.append(-1)
-                fail_info = {"message": " "}
+                fail_info = {"message": " Request failure: Suitable path not found by kSP-FF"}
 
         logger.info(f' Paths selected: {k_path_selected}')
         logger.info(f' Initial slots selected: {initial_slot_selected}')
@@ -755,6 +756,56 @@ class VoneEnvNodeSelectionOnly(VoneEnv):
         node_mask = self.generate_node_mask(request_size, node_capacities)
         self.node_mask = node_mask
         return node_mask
+
+
+class VoneEnvRoutingOnly(VoneEnv):
+
+    def __init__(self, choose_k_paths=False, **kwargs):
+        super().__init__(**kwargs)
+        self.choose_k_paths = choose_k_paths
+
+    def define_action_space(self):
+        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
+        self.generate_vnet_cap_request_tables()
+        self.generate_vnet_bw_request_tables()
+
+        # action space sizes are maximum corresponding table size for maximum request size
+        if self.choose_k_paths:
+            self.action_space = gym.spaces.MultiDiscrete(
+                (
+                    self.k_paths**self.max_vnet_size,
+                    (self.num_slots-self.min_slot_request+1) ** self.max_vnet_size,
+                )
+            )
+        else:
+            self.action_space = gym.spaces.Discrete(
+                (self.num_slots-self.min_slot_request+1) ** self.max_vnet_size,
+            )
+
+    def select_nodes_paths_slots(self, action):
+        """Get selected nodes, paths, and slots from action."""
+        k_paths_selected = None
+        fail_info = {}
+        request_size = self.current_VN_capacity.size
+        # Get node selection (dependent on number of nodes in request)
+        nodes_selected, node_mapping_success = select_nodes_nsc(self, self.topology.topology_graph, self.current_observation)
+        logger.info(f' Nodes selected: {nodes_selected}')
+
+        if self.choose_k_paths:
+            k_paths_selected = get_nth_item(self.generate_path_selection(request_size), action[0])
+
+        link_mapping_success, k_paths_selected, initial_slots_selected = \
+            select_path_fdl(self, self.topology.topology_graph, self.current_VN_bandwidth, nodes_selected, k_paths_selected=k_paths_selected)
+        logger.info(f' Paths selected: {k_paths_selected}')
+        logger.info(f' Initial slots selected: {initial_slots_selected}')
+
+        if not node_mapping_success:
+            fail_info = {"message": " Request failure: Node mapping by NSC method failed"}
+        elif not link_mapping_success:
+            fail_info = {"message": " Request failure: Link mapping failed"}
+
+        return nodes_selected, k_paths_selected, initial_slots_selected, fail_info
+
 
 
 if __name__ == "__main___":

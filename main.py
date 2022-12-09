@@ -115,7 +115,7 @@ if __name__ == "__main__":
         results = []
         for load in range(1, 11):
             conf['env_args']['load'] = load
-            env = gym.make(conf["env_name"], seed=1, **conf["env_args"])
+            env = gym.make(conf["env_name"], seed=load, **conf["env_args"])
             model = PPO.load(args.model_file)
             eva = evaluate_policy(model, env, n_eval_episodes=1)
             results.append(env.results)

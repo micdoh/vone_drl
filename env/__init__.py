@@ -10,3 +10,8 @@ register(
     id='vone_Env_Nodes-v0',
     entry_point='env.envs:VoneEnvNodeSelectionOnly',
 )
+
+register(
+    id='vone_Env_Routing-v0',
+    entry_point='env.envs:VoneEnvRoutingOnly',
+)
