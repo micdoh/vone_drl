@@ -20,7 +20,7 @@ from wandb.integration.sb3 import WandbCallback
 from callback import SaveOnBestTrainingRewardCallback
 from log_init import init_logger
 from nsc_ksp_fdl import nsc_ksp_fdl
-from env.envs.VoneEnv import VoneEnv
+from env.envs.VoneEnv import VoneEnv, VoneEnvRoutingOnly, VoneEnvNodeSelectionOnly
 
 
 def linear_schedule(initial_value: float) -> Callable[[float], float]:
@@ -104,8 +104,6 @@ if __name__ == "__main__":
                         help='Path to saved model zip file')
     parser.add_argument('--save_model', action='store_true',
                         help='Use callback to save model with best training reward')
-    parser.add_argument('--nodes_only', action='store_true',
-                        help='Use environment that only allows agent to choose nodes')
     args = parser.parse_args()
     conf = yaml.safe_load(Path(args.file).read_text())
 
@@ -127,7 +125,8 @@ if __name__ == "__main__":
     callbacks = [
         SaveOnBestTrainingRewardCallback(
             check_freq=conf['env_args']['episode_length'],
-            log_dir=conf["log_dir"]
+            log_dir=conf["log_dir"],
+            save_dir=conf["save_model_dir"],
         )
     ] if args.save_model else []
 
@@ -157,7 +156,7 @@ if __name__ == "__main__":
     callback_list = CallbackList(callbacks)
 
     if args.masking:
-        env = gym.make(conf["env_name"], seed=1, **conf["env_args"])
+        env = gym.make(conf["env_name"], seed=random.randint(0, 100), **conf["env_args"])
         env = ActionMasker(env, mask_fn)
     else:
         env = [
@@ -166,9 +165,10 @@ if __name__ == "__main__":
         ]
         env = SubprocVecEnv(env, start_method='fork') if args.multithread else DummyVecEnv(env)
 
-    # info_keywords = ('P_accepted', 'topology_name', 'load',)
-    # env = gym.make(conf["env_name"], seed=random.randint(0,100), **conf["env_args"])
-    # env = Monitor(env, filename=str(monitor_file.resolve()), info_keywords=info_keywords)
+    if args.save_model:
+        info_keywords = ('P_accepted', 'topology_name', 'load',)
+        env = gym.make(conf["env_name"], seed=random.randint(0, 100), **conf["env_args"])
+        env = Monitor(env, filename=str(monitor_file.resolve()), info_keywords=info_keywords)
 
     # create agent
     agent_kwargs = dict(

@@ -4,7 +4,6 @@ import gym
 import logging
 from copy import deepcopy
 from itertools import islice
-from env.envs.VoneEnv import VoneEnv
 
 # NSC-KSP-FDL
 # method from: https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7718438
@@ -117,7 +116,7 @@ def get_gen_index(gen, value):
 def select_nodes_nsc(env, topology, observation):
     """Return best node choice based on node switching capacity"""
     node_mapping_success = False
-    request_size = the_env.current_VN_capacity.size
+    request_size = env.current_VN_capacity.size
 
     action_node = np.zeros(request_size, dtype=int)
     # 1. Rank substrate nodes in descending order of node switching capacity (NSC)
@@ -139,12 +138,13 @@ def select_nodes_nsc(env, topology, observation):
 
 
 # TODO - The heuristic could be improved by checking for overlap of selected paths and choosing next FDL candidate if so
-def select_path_fdl(env, topology, vnet_bandwidth, action_node, k_paths_selected=None):
+def select_path_fdl(env, topology_0, vnet_bandwidth, action_node, k_paths_selected=None):
     """Select k-path and slots to use with fragmentation degree loss (FDL) method.
     If k_path_selected is passed, the k-indices will be used to select paths, with FDL deciding slots.
     Otherwise, both paths and slots are selected based on lowest FDL.
     k_path_selected: List[List[3]]"""
-    request_size = the_env.current_VN_capacity.size
+    topology = deepcopy(topology_0)
+    request_size = env.current_VN_capacity.size
     link_mapping_success = True
     action_k_path = np.zeros(request_size, dtype=int)
     action_initial_slots = np.zeros(request_size, dtype=int)
@@ -183,7 +183,7 @@ def select_path_fdl(env, topology, vnet_bandwidth, action_node, k_paths_selected
             for k in range(len(slots_in_path)):
                 available_slots_in_path = available_slots_in_path & slots_in_path[k]
 
-            blocks_in_path = find_blocks(available_slots_in_path, the_env.num_slots)
+            blocks_in_path = find_blocks(available_slots_in_path, env.num_slots)
             initial_slots = []
             for k in range(len(blocks_in_path)):
                 if blocks_in_path[k] == bw_req:
@@ -197,7 +197,7 @@ def select_path_fdl(env, topology, vnet_bandwidth, action_node, k_paths_selected
                 break
             
             # Calculate FD of path before assigning slots
-            FD_before = calculate_path_FD(topology, path, the_env.num_slots)
+            FD_before = calculate_path_FD(topology, path, env.num_slots)
             initial_slots = np.array(initial_slots, dtype=int)
 
             # Calaculate FD of path after each possible assignment of slots
@@ -210,7 +210,7 @@ def select_path_fdl(env, topology, vnet_bandwidth, action_node, k_paths_selected
                     g.edges[path[l], path[l + 1]]['slots'][initial_slots[k]:initial_slots[k] + bw_req] -= 1
 
                 # Calculate FD after assigning slots and hence FDL
-                FD_after = calculate_path_FD(g, path, the_env.num_slots)
+                FD_after = calculate_path_FD(g, path, env.num_slots)
                 FDL_candidates.append((FD_after - FD_before, j, initial_slots[k]))
 
         # If no paths possible, mapping fails

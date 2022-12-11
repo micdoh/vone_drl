@@ -84,11 +84,11 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
     :param verbose: (int)
     """
 
-    def __init__(self, check_freq: int, log_dir: str, verbose=1):
+    def __init__(self, check_freq: int, log_dir: str, save_dir: str, verbose=1):
         super(SaveOnBestTrainingRewardCallback, self).__init__(verbose)
         self.check_freq = check_freq
         self.log_dir = log_dir
-        self.save_path = os.path.join(log_dir, 'best_model')
+        self.save_path = save_dir#os.path.join(log_dir, 'best_model')
         self.best_mean_reward = -np.inf
 
     def _init_callback(self) -> None:
@@ -113,7 +113,7 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
                     self.best_mean_reward = mean_reward
                     # Example for saving best model
                     if self.verbose > 0:
-                        logger.warn("Saving new best model to {}".format(self.save_path))
+                        logger.warning("Saving new best model to {}".format(self.save_path))
                         self.model.save(self.save_path)
 
         return True
