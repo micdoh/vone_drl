@@ -15,14 +15,15 @@ class CustomCallback(BaseCallback):
 
     :param verbose: Verbosity level: 0 for no output, 1 for info messages, 2 for debug messages
     """
-    def __init__(self, verbose=0):
+
+    def __init__(self, env=None, verbose=0):
         super(CustomCallback, self).__init__(verbose)
         # Those variables will be accessible in the callback
         # (they are defined in the base class)
         # The RL model
         # self.model = None  # type: BaseAlgorithm
         # An alias for self.model.get_env(), the environment used for training
-        # self.training_env = None  # type: Union[gym.Env, VecEnv, None]
+        self.env = env  # type: Union[gym.Env, VecEnv, None]
         # Number of time the callback was called
         # self.n_calls = 0  # type: int
         # self.num_timesteps = 0  # type: int
@@ -39,6 +40,7 @@ class CustomCallback(BaseCallback):
         """
         This method is called before the first rollout starts.
         """
+
         pass
 
     def _on_rollout_start(self) -> None:
@@ -47,6 +49,7 @@ class CustomCallback(BaseCallback):
         using the current policy.
         This event is triggered before collecting new samples.
         """
+        logger.info("Starting new rollout")
         pass
 
     def _on_step(self) -> bool:
@@ -58,6 +61,7 @@ class CustomCallback(BaseCallback):
 
         :return: (bool) If the callback returns False, training is aborted early.
         """
+
         return True
 
     def _on_rollout_end(self) -> None:
@@ -88,7 +92,7 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
         super(SaveOnBestTrainingRewardCallback, self).__init__(verbose)
         self.check_freq = check_freq
         self.log_dir = log_dir
-        self.save_path = save_dir#os.path.join(log_dir, 'best_model')
+        self.save_path = save_dir  # os.path.join(log_dir, 'best_model')
         self.best_mean_reward = -np.inf
 
     def _init_callback(self) -> None:
@@ -99,7 +103,7 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
     def _on_step(self) -> bool:
         if self.n_calls % self.check_freq == 0:
             # Retrieve training reward
-            x, y = ts2xy(load_results(self.log_dir), 'timesteps')
+            x, y = ts2xy(load_results(self.log_dir), "timesteps")
             if len(x) > 0:
                 # Mean training reward over the last 1 episode
                 mean_reward = np.mean(y[-1:])
@@ -107,13 +111,14 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
                     logger.warning(
                         f"Num timesteps: {self.num_timesteps} - "
                         f"Best mean reward: {self.best_mean_reward:.2f} - "
-                        f"Last mean reward per episode: {mean_reward:.2f}")
+                        f"Last mean reward per episode: {mean_reward:.2f}"
+                    )
                 # New best model, you could save the agent here
                 if mean_reward > self.best_mean_reward:
                     self.best_mean_reward = mean_reward
                     # Example for saving best model
                     if self.verbose > 0:
-                        logger.warning("Saving new best model to {}".format(self.save_path))
+                        logger.warning(
+                            "Saving new best model to {}".format(self.save_path)
+                        )
                         self.model.save(self.save_path)
-
-        return True
