@@ -1,3 +1,4 @@
+import gym
 import numpy as np
 from itertools import islice
 from typing import Generator, Any
@@ -21,3 +22,19 @@ def get_gen_index(gen: Generator, value: [int]) -> int:
     for n, item in enumerate(gen):
         if (item == np.array(value)).all():
             return n
+
+def mask_fn(env: gym.Env) -> np.ndarray:
+    """Do whatever you'd like in this function to return the action mask for the env.
+    In this example, we assume the env has a helpful method we can rely on.
+    Don't forget to use MaskablePPO and ActionMasker wrapper for the env."""
+    return env.valid_action_mask()
+
+
+def make_env(env_id, seed, **kwargs):
+    """Used for instantiating multiple (vectorised) envs"""
+    def _init():
+        env = gym.make(env_id, **kwargs)
+        env.seed(seed)
+        return env
+
+    return _init

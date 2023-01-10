@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 #  4. Random policy (could have any of combo of decision stages random) = 1-8 options
 #  So, need to
 
+# TODO - Define new env for routing-only with masking,
+#  where the chosen nodes are presented as part of the observation
+
 
 # TODO - Implement scaling of capacity
 # TODO - Accommodate transparent VONE case (continuity constraint)
@@ -40,6 +43,14 @@ logger = logging.getLogger(__name__)
 #  i.e. plot acceptance rate against number of request received. Could also incorporate into reward.
 # TODO - Define Selector class that would allow kSP-FF, -FDL, random, NSC, etc. to be easily interchanged
 
+
+fail_messages = {
+    "node_mapping": {"code": 1, "message": "Node mapping failure"},
+    "path_mapping": {"code": 2, "message": "Path mapping failure"},
+    "slot_mapping": {"code": 3, "message": "Slot mapping failure"},
+    "node_capacity": {"code": 4, "message": "Insufficient node capacity"},
+    "slot_reuse": {"code": 5, "message": "Slot reused in request"},
+}
 
 class VoneEnv(gym.Env):
     def __init__(
@@ -64,6 +75,7 @@ class VoneEnv(gym.Env):
         routing_choose_k_paths: bool = False,
         ksp_fdl: bool = False,
         ksp_ff: bool = True,
+        sort_nodes: bool = True,
     ):
         self.current_time = 0
         self.allocated_Service = []
@@ -96,6 +108,7 @@ class VoneEnv(gym.Env):
         self.routing_choose_k_paths = routing_choose_k_paths
         self.ksp_fdl = ksp_fdl
         self.ksp_ff = ksp_ff
+        self.sort_nodes = sort_nodes
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
@@ -129,7 +142,7 @@ class VoneEnv(gym.Env):
         self.current_VN_bandwidth = np.zeros(self.max_vnet_size, dtype=int)
 
         self.info = {
-            "P_accepted": None,
+            "acceptance_ratio": None,
             "topology_name": self.topology_name,
             "load": self.load,
         }
@@ -307,6 +320,7 @@ class VoneEnv(gym.Env):
                 self.topology.topology_graph, node_pair[0], node_pair[1], self.k_paths
             )
             self.link_selection_dict[node_pair] = k_paths
+            self.link_selection_dict[(node_pair[1], node_pair[0])] = k_paths
 
     def generate_vnet_cap_request_tables(self):
         for vnet_size in range(self.min_vnet_size, self.max_vnet_size + 1):
@@ -360,7 +374,8 @@ class VoneEnv(gym.Env):
         logger.info(f" Capacity  : {self.current_VN_capacity}")
         logger.info(f" Bandwidth : {self.current_VN_bandwidth}")
 
-        node_free = path_free = True
+        path_list = []
+        path_free = True
 
         request_size = self.current_VN_capacity.size
 
@@ -375,15 +390,21 @@ class VoneEnv(gym.Env):
         cap = self.get_node_capacities(nodes_selected=nodes_selected)
 
         # rearrange request node-ordering until satisfied that nodes can/cannot satisfy request
-        requests = list(zip(self.current_VN_capacity, self.current_VN_bandwidth))
-        for n, req in enumerate(multiset_permutations(requests)):
-            node_req = [item[0] for item in req]
-            bw_req = [item[1] for item in req]
-            node_free = (cap >= node_req).all()
-            if node_free:
-                self.current_VN_capacity = np.array(node_req)
-                self.current_VN_bandwidth = np.array(bw_req)
-                break
+        if self.sort_nodes:
+
+            requests = list(zip(self.current_VN_capacity, self.current_VN_bandwidth))
+            for n, req in enumerate(multiset_permutations(requests)):
+                node_req = [item[0] for item in req]
+                bw_req = [item[1] for item in req]
+                node_free = (cap >= node_req).all()
+                if node_free:
+                    self.current_VN_capacity = np.array(node_req)
+                    self.current_VN_bandwidth = np.array(bw_req)
+                    break
+
+        else:
+            # Don't sort nodes if using heuristic node selection
+            node_free = (cap >= self.current_VN_capacity).all()
 
         # make sure different path slots are used & check substrate link BW
         self.num_path_accepted = 0
@@ -424,18 +445,27 @@ class VoneEnv(gym.Env):
 
                     path_free = path_free & current_path_free
 
+                if not path_free:
+                    fail_info = fail_messages["slot_mapping"]
+
                 path_free = path_free & self.is_slot_not_reused(
                     path_list, initial_slot_selected, self.current_VN_bandwidth
                 )
 
+                if not path_free:
+                    fail_info = fail_messages["slot_reuse"]
+
         else:
-            logger.info(" Request failure: Insufficient capacity at selected node")
+            fail_info = fail_messages["node_capacity"]
+            logger.info(fail_info["message"])
 
         # accepted?
         self.accepted = node_free & path_free
         self.node_accepted = node_free
 
+        # Add service to topology if accepted
         if self.accepted:
+            # Holding time
             ht = self.rng.expovariate(1 / self.mean_service_holding_time)
             current_service = Service(
                 copy.deepcopy(self.current_time),
@@ -462,9 +492,18 @@ class VoneEnv(gym.Env):
         observation = self.observation()
         done = self.services_processed == self.episode_length
         info = {
-            "P_accepted": self.services_accepted / self.services_processed,
+            "acceptance_ratio": self.services_accepted / self.services_processed,
             "topology_name": self.topology_name,
             "load": self.load,
+            "mean_service_holding_time": self.mean_service_holding_time,
+            "reward": reward,
+            "code": 0,
+            "message": None,
+            "nodes_selected": nodes_selected,
+            "paths_selected": k_path_selected,
+            "links_selected": path_list,
+            "slots_selected": initial_slot_selected,
+            **fail_info
         }
         self.current_info = info
 
@@ -473,7 +512,7 @@ class VoneEnv(gym.Env):
     def vnet_size_distribution(self, dist_name):
         """Set the probability distribution function used to generate the request sizes"""
         if dist_name == "fixed":
-            return lambda: self.min_vnet_size
+            return True#lambda: self.min_vnet_size
         elif dist_name == "random":
             return lambda: self.rng.randint(*(self.min_vnet_size, self.max_vnet_size))
         # TODO - Investigate other possible distributions e.g. realistic traffic
@@ -509,14 +548,17 @@ class VoneEnv(gym.Env):
         capacity = self.topology.topology_graph.nodes[n]["capacity"]
         return True if capacity > capacity_required else False
 
-    def is_path_free(self, path, initial_slot, num_slots, log=True):
+    def is_path_free(self, path, initial_slot, num_slots):
         """Check path that initial slot is free and start of block of sufficient capacity"""
+        # TODO - Refactor step() to allow failure messages from is_path_free and is_slot_reused into fail_info
         if initial_slot + num_slots > self.num_slots:
-            if log:
-                logger.info(
-                    " Request failure: Selected initial slot does not have "
-                    "sufficient neighbouring slots until end of band"
-                )
+            print(f"Initial slot: {initial_slot}")
+            print(f"Num slots: {num_slots}")
+            print(f"Path: {path}")
+            logger.info(
+                " Request failure: Selected initial slot does not have "
+                "sufficient neighbouring slots until end of band"
+            )
             return False
 
         path_slots = np.ones(self.num_slots, dtype=int)
@@ -527,15 +569,13 @@ class VoneEnv(gym.Env):
             )
 
         if path_slots[initial_slot] == 0:
-            if log:
-                logger.info(" Request failure: Selected initial slot is occupied")
+            logger.info(" Request failure: Selected initial slot is occupied")
             return False
 
-        elif np.sum(path_slots[initial_slot : initial_slot + num_slots]) < num_slots:
-            if log:
-                logger.info(
-                    " Request failure: Selected initial slot is of insufficient block size"
-                )
+        elif np.sum(path_slots[initial_slot: initial_slot + num_slots]) < num_slots:
+            logger.info(
+                " Request failure: Selected initial slot is of insufficient block size"
+            )
             return False
 
         return True
@@ -657,7 +697,7 @@ class VoneEnv(gym.Env):
             )
 
     def get_node_capacities(self, nodes_selected: [int] = None):
-        if nodes_selected:
+        if nodes_selected is not None:
             return np.array(
                 [
                     self.topology.topology_graph.nodes[i]["capacity"]
@@ -770,8 +810,7 @@ class VoneEnvNodeSelectionOnly(VoneEnv):
 
     def select_nodes_paths_slots(self, action):
         """Get selected nodes, paths, and slots from action.
-        KSP-FF"""
-        fail_info = {}
+        KSP-FDL or FF"""
         request_size = self.current_VN_capacity.size
         # Get node selection (dependent on number of nodes in request)
         nodes_selected = get_nth_item(
@@ -779,35 +818,25 @@ class VoneEnvNodeSelectionOnly(VoneEnv):
         )
         logger.info(f" Nodes selected: {nodes_selected}")
 
-        if self.ksp_fdl:
-            # kSP-FDL
-            (
-                link_mapping_success,
-                k_path_selected,
-                initial_slot_selected,
-            ) = select_path_fdl(
-                self,
-                self.topology.topology_graph,
-                self.current_VN_bandwidth,
-                nodes_selected,
-            )
-            if not link_mapping_success:
-                fail_info = {
-                    "message": " Request failure: Suitable path not found by kSP-FF"
-                }
-
-        else:
-            # kSP-FF
-            k_path_selected, initial_slot_selected, fail_info = select_path_ff(
-                self, nodes_selected
-            )
+        (
+            k_path_selected,
+            initial_slot_selected,
+            fail_info
+        ) = select_path_fdl(
+            self,
+            self.topology.topology_graph,
+            self.current_VN_bandwidth,
+            nodes_selected,
+        ) if self.ksp_fdl else select_path_ff(
+            self, nodes_selected
+        )
 
         logger.info(f" Paths selected: {k_path_selected}")
         logger.info(f" Initial slots selected: {initial_slot_selected}")
 
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
-    def valid_action_mask(self):
+    def action_masks(self):
         request_size = self.current_VN_capacity.size
         node_capacities = self.current_observation["node_capacities"]
         node_mask = self.mask_nodes(request_size, node_capacities)
@@ -877,7 +906,7 @@ class VoneEnvRoutingOnly(VoneEnv):
             (node_request_table == self.current_VN_capacity).all(axis=1)
         )[0]
         nodes_selected, _ = select_nodes_nsc(
-            self, self.topology.topology_graph, *node_act_int
+            self, self.topology.topology_graph
         )
 
         # Find row in slot request table that matches observation
@@ -904,8 +933,6 @@ class VoneEnvRoutingOnly(VoneEnv):
 
     def select_nodes_paths_slots(self, action):
         """Get selected nodes, paths, and slots from action."""
-        link_mapping_success = True
-        fail_info = {}
         request_size = self.current_VN_capacity.size
         # Get node selection (dependent on number of nodes in request)
         nodes_selected = self.current_observation["selected_nodes"]
@@ -916,34 +943,28 @@ class VoneEnvRoutingOnly(VoneEnv):
                 self.generate_path_selection(request_size), action
             )
 
-            if self.ksp_fdl:
-                # kSP-FDL
-                (
-                    link_mapping_success,
-                    k_paths_selected,
-                    initial_slots_selected,
-                ) = select_path_fdl(
-                    self,
-                    self.topology.topology_graph,
-                    self.current_VN_bandwidth,
-                    nodes_selected,
-                    k_paths_selected=k_paths_selected,
-                )
-            else:  # kSP-FF
-                _, initial_slots_selected, fail_info = select_path_ff(
-                    self, nodes_selected
-                )
+            (
+                _,
+                initial_slots_selected,
+                fail_info,
+            ) = select_path_fdl(
+                self,
+                self.topology.topology_graph,
+                self.current_VN_bandwidth,
+                nodes_selected,
+                k_paths_preselected=k_paths_selected,
+            ) if self.ksp_fdl else select_path_ff(
+                self, nodes_selected
+            )
 
         else:
+            fail_info = {}
             k_paths_selected = get_nth_item(
                 self.generate_path_selection(request_size), action[0]
             )
             initial_slots_selected = get_nth_item(
                 self.generate_slot_selection(request_size), action[1]
             )
-
-        if not link_mapping_success:
-            fail_info = {"message": " Request failure: Link mapping by FDL failed"}
 
         logger.info(f" Nodes selected: {nodes_selected}")
         logger.info(f" Paths selected: {k_paths_selected}")
@@ -958,20 +979,46 @@ class VoneEnvRoutingOnly(VoneEnv):
         self.path_mask = path_mask
         return path_mask
 
-    # TODO - Define new env for routing-only with masking,
-    #  where the chosen nodes are presented as part of the observation
 
+class VoneEnvNoSorting(VoneEnvNodeSelectionOnly):
+    # TODO - Ensure this is compatible with vnet_size > 3 for future
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.sort_nodes = False
+        # action space sizes are maximum corresponding table size for maximum request size
+        self.action_space = gym.spaces.Discrete(
+           len(self.generate_node_selection(3))
+        )
 
-if __name__ == "__main___":
-    # Test to check env is compatible with gym API
-    print("Checking env")
-    stable_baselines3.common.env_checker.check_env(VoneEnv)
+    def generate_node_selection(self, vnet_size):
+        """Populate node_selection_dict with vnet_size: array pairs.
+        Array elements indicate node selections, indexed by action space action number"""
+        df = np.array(list(product(range(self.num_nodes), repeat=vnet_size)))
+        return np.delete(df, self.get_duplicate_nodes_row_indices(df), axis=0)
+    # TODO - Either keep the duplicates in the action space and mask them or delete the duplicates from the action as well
 
-    env = VoneEnv()
-    print("Env created")
-    obs = env.reset()
-    n_steps = 10
-    for _ in range(n_steps):
-        # Random action
-        action = env.action_space.sample()
-        obs, reward, done, info = env.step(action)
+    def get_duplicate_nodes_row_indices(self, df):
+        # TODO - Make this work for vnets larger than 3
+        a = (df[:, 0] == df[:, 1]) | (df[:, 1] == df[:, 2]) | (df[:, 0] == df[:, 2])
+        return np.where(a)
+
+    def mask_nodes(self, vnet_size, node_capacities):
+        """Return the mask of permitted node actions."""
+
+        node_capacities = dict(enumerate(node_capacities))
+
+        node_selection_table = self.generate_node_selection(self.current_VN_capacity.size)
+
+        node_cap_table = np.vectorize(
+            node_capacities.get
+        )(
+            node_selection_table
+        )
+
+        # Set elements to ture if node capacity is sufficient
+        node_mask = np.greater_equal(node_cap_table, self.current_VN_capacity)
+
+        # Set row to True if all elements True
+        node_mask = np.all(node_mask, axis=1)
+
+        return pd.Series(node_mask)

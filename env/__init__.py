@@ -15,3 +15,8 @@ register(
     id="vone_Env_Routing-v0",
     entry_point="env.envs:VoneEnvRoutingOnly",
 )
+
+register(
+    id="vone_Env_No_Sorting-v0",
+    entry_point="env.envs:VoneEnvNoSorting",
+)

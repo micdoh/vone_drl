@@ -36,27 +36,27 @@ fail_messages = {
 }
 
 
-def find_blocks(slots: np.ndarray, num_slots: int) -> np.ndarray:
+def find_blocks(slots: np.ndarray) -> np.ndarray:
     """Find starting indices of blocks able to accommodate required slots.
 
     Args:
         slots: Array of occupied/unoccupied slots on link.
-        num_slots: Number of required slots.
 
     Returns:
-        Binary array with 1 indicating starting slots of blocks able to fit num_slots."""
-    blocks = np.zeros(num_slots)
+        Binary array with 1 indicating starting slots of blocks able to fit num_slots.
+    """
+    blocks = np.zeros(len(slots))
     n = 0
     for m in range(len(slots)):
-        if slots[m] == 1:
+        if slots[m] == 1:  # 1 indicates slot is free
             blocks[n] += 1
         else:
-            n += 1
+            n += 1  # Increment initial block
 
     return blocks
 
 
-def calculate_path_frag(topology: Graph, path: [int], num_slots: int) -> int:
+def calculate_path_frag(topology: Graph, path: [int]) -> int:
     """Calculate fragmentation degree for path.
 
     Fragmentation degree for a link is number of blocks divided by number of slots.
@@ -65,7 +65,6 @@ def calculate_path_frag(topology: Graph, path: [int], num_slots: int) -> int:
     Args:
         topology: Substrate network graph.
         path: List of nodes comprising the path.
-        num_slots: No. of slots required on path.
 
     Returns:
         Sum of the fragmentation degree for the path,
@@ -77,7 +76,7 @@ def calculate_path_frag(topology: Graph, path: [int], num_slots: int) -> int:
         n_slots = sum(slots)
         if n_slots == 0:
             return 1000
-        block_indices = find_blocks(slots, num_slots)
+        block_indices = find_blocks(slots)
         n_blocks = len(np.where(block_indices > 0)[0])
         frag_degree = n_blocks / n_slots
         frag_sum += frag_degree
@@ -160,7 +159,9 @@ def select_nodes_nsc(env: gym.Env, topology: Graph) -> ([int], dict):
     # Check that substrate nodes can meet virtual node requirements
     successful_nodes = 0
     for n, node_request in enumerate(rank_n_v):
-        if rank_n_s[n][2] >= node_request[2]:
+        substrate_capacity = rank_n_s[n][2]
+        requested_capacity = node_request[2]
+        if substrate_capacity >= requested_capacity:
             selected_nodes[rank_n_v[n][1]] = rank_n_s[n][1]
             successful_nodes += 1
 
@@ -244,12 +245,14 @@ def select_path_fdl(
             for k in range(len(slots_in_path)):
                 available_slots_in_path = available_slots_in_path & slots_in_path[k]
 
-            blocks_in_path = find_blocks(available_slots_in_path, env.num_slots)
+            blocks_in_path = find_blocks(available_slots_in_path)
             initial_slots = []
             for k in range(len(blocks_in_path)):
                 if blocks_in_path[k] == bw_req:
+                    # Add initial slot of block
                     initial_slots.append(k + sum(blocks_in_path[0:k]))
                 elif blocks_in_path[k] > bw_req:
+                    # Add initial slot of block AND final slot of block minus request size
                     initial_slots.append(k + sum(blocks_in_path[0:k]))
                     initial_slots.append(
                         k + sum(blocks_in_path[0:k]) + blocks_in_path[k] - bw_req
@@ -260,7 +263,7 @@ def select_path_fdl(
                 break
 
             # Calculate fragmentation degree of path before assigning slots
-            frag_before = calculate_path_frag(topology, path, env.num_slots)
+            frag_before = calculate_path_frag(topology, path)
             initial_slots = np.array(initial_slots, dtype=int)
 
             # Calculate frag. degree of path after each possible assignment of slots
@@ -275,7 +278,7 @@ def select_path_fdl(
                     ] -= 1
 
                 # Calculate frag. degree after assigning slots and hence FDL
-                frag_after = calculate_path_frag(g, path, env.num_slots)
+                frag_after = calculate_path_frag(g, path)
                 frag_degree_loss_rank.append(
                     (frag_after - frag_before, j, initial_slots[k])
                 )
@@ -300,7 +303,7 @@ def select_path_fdl(
         )
         for j in range(len(path_selected) - 1):
             topology.edges[path_selected[j], path_selected[j + 1]]["slots"][
-                initial_slots_selected[action_index] : initial_slots_selected[action_index]
+                initial_slots_selected[action_index]: initial_slots_selected[action_index]
                 + bw_req
             ] -= 1
 
@@ -350,7 +353,7 @@ def select_path_ff(env: gym.Env, nodes_selected: [int]):
             for i_slot in range(env.num_slots - env.current_VN_bandwidth[i_req]):
                 # Check each slot in turn to see if free
                 current_path_free = env.is_path_free(
-                    path_list[i_req], i_slot, env.current_VN_bandwidth[i_req], log=False
+                    path_list[i_req], i_slot, env.current_VN_bandwidth[i_req]
                 )
 
                 if current_path_free:
@@ -379,31 +382,28 @@ def nsc_ksp_fdl(the_env: gym.Env):
 
     topology_0, _ = the_env.render()
     topology = deepcopy(topology_0)
+    info_list = []
 
     step = 0
 
     while step < the_env.episode_length:
         step += 1
-        link_mapping_success = False
         request_size = the_env.current_VN_capacity.size
-        action_k_path = np.zeros(request_size, dtype=int)
-        action_initial_slots = np.zeros(request_size, dtype=int)
 
         # Get node mapping by ranking according to Node Switching Capacity
-        node_request_int = observation["request"][0]
-        action_node, node_mapping_success = select_nodes_nsc(
+        action_node, fail_info = select_nodes_nsc(
             the_env, topology
         )
 
         # Get the requested bandwidth between nodes
         vnet_bandwidth = the_env.current_VN_bandwidth
 
-        if node_mapping_success is True:
+        if not fail_info:
+
             action_k_path, action_initial_slots, fail_info = select_path_fdl(
                 the_env, topology, vnet_bandwidth, action_node
             )
 
-        if link_mapping_success is True:
             # Find row in node selection table that matches desired action
             node_selection_gen = the_env.generate_node_selection(request_size)
             action_node_int = get_gen_index(node_selection_gen, action_node)
@@ -419,6 +419,7 @@ def nsc_ksp_fdl(the_env: gym.Env):
             )
 
         else:
+
             # TODO - Should make index 0 of action a fail? Or just return a False here and check later?
             action_node_int = action_k_path_int = action_initial_slots_int = 0
 
@@ -427,6 +428,24 @@ def nsc_ksp_fdl(the_env: gym.Env):
         )
         topology_0, _ = the_env.render()
         topology = deepcopy(topology_0)
+        info_list.append(info)
 
-    logger.warning(info)
-    return info
+    logger.info(info)
+
+    return info_list
+
+
+def select_random_action(env: gym.Env, action_index: int = None) -> int or np.ndarray:
+    """Randomly sample the action space.
+
+    Args:
+        env: The environment.
+        action_index: (optional) The index of the multidiscrete action space value to return.
+
+    Return:
+        Action array or indexed value
+    """
+    action = env.action_space.sample()
+    if action_index:
+        return action[action_index]
+    return action

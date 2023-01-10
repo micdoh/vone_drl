@@ -1,10 +1,17 @@
 import gym
 from env.envs.VoneEnv import VoneEnv
 from heuristics import nsc_ksp_fdl
+import pandas as pd
+import os
+from pathlib import Path
 
 if __name__ == "__main__":
 
-    num_episodes = 1
+    data_file = Path("/Users/michaeldoherty/git/vone_drl/runs/nsc_ksp_fdl/nsc_ksp_fdl_1.csv")
+
+    data_file.parent.mkdir(exist_ok=True)
+
+    num_episodes = 20
     k_paths = 5
     episode_length = 5000
     env_args = dict(
@@ -13,10 +20,18 @@ if __name__ == "__main__":
         mean_service_holding_time=10,
         k_paths=k_paths,
         wandb_log=False,
+        sort_nodes=False,
     )
 
     the_env = gym.make("vone_Env-v0", **env_args)
 
-    nsc_ksp_fdl(the_env)
+    for ep in range(num_episodes):
+
+        obs = the_env.reset()
+        info_list = nsc_ksp_fdl(the_env)
+
+        df = pd.DataFrame(info_list)
+        df.to_csv(data_file, mode='a', header=not os.path.exists(data_file))
+        print(f"ep {ep} done")
 
     the_env.close()
