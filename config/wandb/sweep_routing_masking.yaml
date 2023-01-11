@@ -20,7 +20,7 @@
       - ${interpreter}
       - ${program}
       - "--file"
-      - "/Users/michaeldoherty/git/vone_drl/config/config_routing_masking.yaml"
+      - "./config/config_routing_masking.yaml"
       - "--log"
       - "WARN"
       - "--masking"

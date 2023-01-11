@@ -1,8 +1,8 @@
 project: VONE-DRL
 env_name: vone_Env-v0
-log_dir: /Users/michaeldoherty/git/vone_drl/runs
-data_file: /Users/michaeldoherty/git/vone_drl/runs/best_routing/train.csv
-model_file: /Users/michaeldoherty/git/vone_drl/runs/best_routing/routing_model.zip
+log_dir: ./runs
+data_file: ./runs/best_routing/train.csv
+model_file: ./runs/best_routing/routing_model.zip
 env_args:
     episode_length: 5000
     load: 9
