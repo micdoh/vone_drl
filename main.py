@@ -19,29 +19,8 @@ from wandb.integration.sb3 import WandbCallback
 from callback import SaveOnBestTrainingRewardCallback, CustomCallback
 from log_init import init_logger
 from heuristics import nsc_ksp_fdl
-from util_funcs import mask_fn, make_env
+from util_funcs import mask_fn, make_env, linear_schedule
 from env.envs.VoneEnv import VoneEnv, VoneEnvRoutingOnly, VoneEnvNodeSelectionOnly
-
-
-def linear_schedule(initial_value: float) -> Callable[[float], float]:
-    """
-    Linear learning rate schedule.
-
-    :param initial_value: Initial learning rate.
-    :return: schedule that computes
-      current learning rate depending on remaining progress
-    """
-
-    def func(progress_remaining: float) -> float:
-        """
-        Progress will decrease from 1 (beginning) to 0.
-
-        :param progress_remaining:
-        :return: current learning rate
-        """
-        return progress_remaining * initial_value
-
-    return func
 
 
 def define_paths(run_id, conf, loglevel):
@@ -100,7 +79,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--linear_scheduler",
-        default=1,
+        default=0,
         type=int,
         help="Use linear schedule to decay learning rate",
     )
@@ -123,9 +102,6 @@ if __name__ == "__main__":
         "--masking", action="store_true", help="Use invalid action masking"
     )
     parser.add_argument(
-        "--eval", action="store_true", help="Evaluate policy (no training)"
-    )
-    parser.add_argument(
         "--model_file", default="", type=str, help="Path to saved model zip file"
     )
     parser.add_argument(
@@ -138,19 +114,6 @@ if __name__ == "__main__":
     callbacks = []
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
-
-    if args.eval:
-        results = []
-        for load in range(1, 11):
-            conf["env_args"]["load"] = load
-            env = gym.make(conf["env_name"], seed=load, **conf["env_args"])
-            model = PPO.load(args.model_file)
-            eva = evaluate_policy(model, env, n_eval_episodes=1)
-            results.append(env.results)
-            heur = nsc_ksp_fdl(env)
-            results.append(heur)
-        print(results)
-        exit()
 
     # Setup wandb run
     if not args.test:
@@ -190,13 +153,7 @@ if __name__ == "__main__":
             monitor_file,
         ) = define_paths(start_time, conf, args.log)
 
-    # Create env
-    # if args.masking:
-    #     env = gym.make(
-    #         conf["env_name"], seed=random.randint(0, 100), **conf["env_args"]
-    #     )
-    #     env = ActionMasker(env, mask_fn)
-    # else:
+    # Setup environment
     env = [
         make_env(conf["env_name"], seed=i, **conf["env_args"])
         for i in range(args.n_procs)
@@ -219,7 +176,7 @@ if __name__ == "__main__":
 
     callback_list = CallbackList(callbacks)
 
-    # create agent
+    # Create agent
     agent_kwargs = dict(
         verbose=0,
         device="cuda",

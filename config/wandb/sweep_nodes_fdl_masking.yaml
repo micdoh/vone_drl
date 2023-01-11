@@ -1,0 +1,35 @@
+    project: VONE-DRL
+    name: "Agent Nodes FDL Masking"
+    program: main.py
+    method: bayes
+    metric:
+      name: mean_reward
+      goal: maximize
+    parameters:
+      learning_rate:
+        min: 0.0003
+        max: 0.0025
+      gamma:
+        min: 0.5
+        max: 0.7
+      n_steps:
+        min: 50
+        max: 100
+    command:
+      - ${env}
+      - ${interpreter}
+      - ${program}
+      - "--file"
+      - "./config/config_nodes_masking.yaml"
+      - "--log"
+      - "WARN"
+      - "--masking"
+      - "--multithread"
+      - "--n_procs"
+      - "4"
+      - ${args}
+    early_terminate:
+      eta: 3
+      max_iter: 27
+      s: 2
+      type: hyperband
