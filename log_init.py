@@ -12,7 +12,7 @@ def init_logger(log_file: str, loglevel: str):
     ch = logging.StreamHandler()
     ch.setLevel(loglevel)
     # create formatter and add it to the handlers
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     fh.setFormatter(formatter)
     ch.setFormatter(formatter)
     # add the handlers to the logger
