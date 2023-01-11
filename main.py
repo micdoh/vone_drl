@@ -99,6 +99,12 @@ if __name__ == "__main__":
         "is number of environment copies running in parallel)",
     )
     parser.add_argument(
+        "--linear_scheduler",
+        default=1,
+        type=int,
+        help="Use linear schedule to decay learning rate",
+    )
+    parser.add_argument(
         "--batch_size", default=64, type=str, help="No. of samples per batch"
     )
     parser.add_argument(
@@ -218,7 +224,7 @@ if __name__ == "__main__":
         verbose=0,
         device="cuda",
         gamma=args.gamma,
-        learning_rate=args.learning_rate,#linear_schedule(args.learning_rate),
+        learning_rate=args.learning_rate if not args.linear_scheduler else linear_schedule(args.learning_rate),
         gae_lambda=args.gae_lambda,
         n_steps=args.n_steps,
         batch_size=args.batch_size,

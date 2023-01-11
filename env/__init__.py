@@ -20,3 +20,8 @@ register(
     id="vone_Env_No_Sorting-v0",
     entry_point="env.envs:VoneEnvNoSorting",
 )
+
+register(
+    id="vone_Env_Routing_Masking-v0",
+    entry_point="env.envs:VoneEnvRoutingMasking",
+)

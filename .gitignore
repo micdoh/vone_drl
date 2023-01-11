@@ -10,3 +10,4 @@ config/wandb/sweep[0-9]*
 config/config[0-9]*
 eval/
 wandb/
+models/

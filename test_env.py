@@ -5,7 +5,15 @@ import pandas as pd
 import stable_baselines3.common.env_checker
 from pathlib import Path
 from sb3_contrib.common.wrappers import ActionMasker
-from env.envs.VoneEnv import VoneEnv, VoneEnvRoutingOnly, VoneEnvNodeSelectionOnly, VoneEnvNoSorting
+from sb3_contrib.common.maskable.utils import get_action_masks
+from sb3_contrib import MaskablePPO
+from env.envs.VoneEnv import (
+    VoneEnv,
+    VoneEnvRoutingOnly,
+    VoneEnvNodeSelectionOnly,
+    VoneEnvNoSorting,
+    VoneEnvRoutingMasking
+)
 from heuristics import *
 
 
@@ -30,6 +38,15 @@ def setup_vone_env_no_node_sorting():
 @pytest.fixture
 def setup_vone_env_node_only():
     conf = yaml.safe_load(Path("./test/config0_nodes_fdl.yaml").read_text())
+    env = gym.make(
+        conf["env_name"], **conf["env_args"], seed=1
+    )
+    return env
+
+
+@pytest.fixture
+def setup_vone_env_routing_masking():
+    conf = yaml.safe_load(Path("./test/config_routing_masking.yaml").read_text())
     env = gym.make(
         conf["env_name"], **conf["env_args"], seed=1
     )
@@ -85,4 +102,17 @@ def test_vone_env_no_node_sorting(setup_vone_env_no_node_sorting):
         action = env.action_space.sample()
         obs, reward, done, info = env.step(action)
         action_mask = env.action_masks()
+    assert 1 == 1
+
+
+def test_vone_env_routing_masking(setup_vone_env_routing_masking):
+    env = setup_vone_env_routing_masking
+    obs = env.reset()
+    model = MaskablePPO("MultiInputPolicy", env, gamma=0.4, seed=32, verbose=1)
+    n_steps = 10
+    for _ in range(n_steps):
+        # Random action
+        action_masks = get_action_masks(env)
+        action, _states = model.predict(obs, action_masks=action_masks)
+        obs, reward, done, info = env.step(action)
     assert 1 == 1

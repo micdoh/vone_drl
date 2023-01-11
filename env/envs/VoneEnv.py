@@ -8,7 +8,7 @@ import copy
 import logging
 import wandb
 import stable_baselines3.common
-from math import comb
+from math import comb, floor
 from itertools import combinations, product, islice
 from service import Service
 from pathlib import Path
@@ -109,6 +109,7 @@ class VoneEnv(gym.Env):
         self.ksp_fdl = ksp_fdl
         self.ksp_ff = ksp_ff
         self.sort_nodes = sort_nodes
+        self.num_selectable_slots = self.num_slots - self.min_slot_request + 1
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
@@ -181,7 +182,7 @@ class VoneEnv(gym.Env):
             (
                 comb(self.num_nodes, self.max_vnet_size),
                 self.k_paths**self.max_vnet_size,
-                (self.num_slots - self.min_slot_request + 1) ** self.max_vnet_size,
+                self.num_selectable_slots ** self.max_vnet_size,
             )
         )
 
@@ -309,7 +310,7 @@ class VoneEnv(gym.Env):
         """Populate slot_selection_dict with vnet_size: array pairs.
         Array rows are initial slot selection choices"""
         return product(
-            range(self.num_slots - self.min_slot_request + 1), repeat=vnet_size
+            range(self.num_selectable_slots), repeat=vnet_size
         )
 
     def generate_link_selection_table(self):
@@ -420,19 +421,9 @@ class VoneEnv(gym.Env):
                 # 1. Check slots are free
                 # 2. Check slots aren't reused in same request
 
+                path_list = self.get_links_from_selection(nodes_selected, k_path_selected)
+
                 for i in range(request_size):
-                    path_list = []
-                    for j in range(len(nodes_selected) - 1):
-                        path_list.append(
-                            self.link_selection_dict[
-                                nodes_selected[j], nodes_selected[j + 1]
-                            ][k_path_selected[j]]
-                        )
-                    path_list.append(
-                        self.link_selection_dict[nodes_selected[0], nodes_selected[-1]][
-                            k_path_selected[-1]
-                        ]
-                    )
 
                     current_path_free = self.is_path_free(
                         path_list[i],
@@ -509,6 +500,21 @@ class VoneEnv(gym.Env):
 
         return observation, reward, done, info
 
+    def get_links_from_selection(self, nodes_selected, k_path_selected):
+        path_list = []
+        for j in range(len(nodes_selected) - 1):
+            path_list.append(
+                self.link_selection_dict[
+                    nodes_selected[j], nodes_selected[j + 1]
+                ][k_path_selected[j]]
+            )
+        path_list.append(
+            self.link_selection_dict[nodes_selected[0], nodes_selected[-1]][
+                k_path_selected[-1]
+            ]
+        )
+        return path_list
+
     def vnet_size_distribution(self, dist_name):
         """Set the probability distribution function used to generate the request sizes"""
         if dist_name == "fixed":
@@ -548,25 +554,34 @@ class VoneEnv(gym.Env):
         capacity = self.topology.topology_graph.nodes[n]["capacity"]
         return True if capacity > capacity_required else False
 
-    def is_path_free(self, path, initial_slot, num_slots):
-        """Check path that initial slot is free and start of block of sufficient capacity"""
-        # TODO - Refactor step() to allow failure messages from is_path_free and is_slot_reused into fail_info
-        if initial_slot + num_slots > self.num_slots:
-            print(f"Initial slot: {initial_slot}")
-            print(f"Num slots: {num_slots}")
-            print(f"Path: {path}")
-            logger.info(
-                " Request failure: Selected initial slot does not have "
-                "sufficient neighbouring slots until end of band"
-            )
-            return False
+    def get_path_slots(self, path):
+        """Return array of slots used by path.
 
+        Args:
+            path: List of nodes in path
+
+        Returns:
+            path_slots: Array of slots that are either free or occupied along all links in path
+        """
         path_slots = np.ones(self.num_slots, dtype=int)
         for i in range(len(path) - 1):
             path_slots = (
                 path_slots
                 & self.topology.topology_graph.edges[path[i], path[i + 1]]["slots"]
             )
+        return path_slots
+
+    def is_path_free(self, path, initial_slot, num_slots):
+        """Check path that initial slot is free and start of block of sufficient capacity"""
+        # TODO - Refactor step() to allow failure messages from is_path_free and is_slot_reused into fail_info
+        if initial_slot + num_slots > self.num_slots:
+            logger.info(
+                " Request failure: Selected initial slot does not have "
+                "sufficient neighbouring slots until end of band"
+            )
+            return False
+
+        path_slots = self.get_path_slots(path)
 
         if path_slots[initial_slot] == 0:
             logger.info(" Request failure: Selected initial slot is occupied")
@@ -586,7 +601,7 @@ class VoneEnv(gym.Env):
         2. Get initial slots and requested number of slots for reused links
         3. Check for overlap"""
         node_pairs = defaultdict(list)
-        # Get dictionary of link: [path_indices]
+        # Get dictionary of link: [indices of paths that use link]
         for n, path in enumerate(paths):
             for i in range(len(path) - 1):
                 node_pairs[(path[i], path[i + 1])].append(n)
@@ -895,7 +910,7 @@ class VoneEnvRoutingOnly(VoneEnv):
             self.action_space = gym.spaces.MultiDiscrete(
                 (
                     self.k_paths**self.max_vnet_size,
-                    (self.num_slots - self.min_slot_request + 1) ** self.max_vnet_size,
+                    self.num_selectable_slots ** self.max_vnet_size,
                 )
             )
 
@@ -1022,3 +1037,64 @@ class VoneEnvNoSorting(VoneEnvNodeSelectionOnly):
         node_mask = np.all(node_mask, axis=1)
 
         return pd.Series(node_mask)
+
+
+class VoneEnvRoutingMasking(VoneEnvRoutingOnly):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def define_action_space(self):
+        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
+        self.generate_vnet_cap_request_tables()
+        self.generate_vnet_bw_request_tables()
+
+        action_space_dims = tuple([self.k_paths*self.num_selectable_slots]) * self.max_vnet_size
+
+        # action space sizes are maximum corresponding table size for maximum request size
+        self.action_space = gym.spaces.MultiDiscrete(
+            action_space_dims
+        )
+
+    def select_nodes_paths_slots(self, action):
+        """Get selected nodes, paths, and slots from action."""
+
+        # Get node selection (dependent on number of nodes in request)
+        nodes_selected = self.current_observation["selected_nodes"]
+
+        k_paths_selected = [floor(dim / self.num_selectable_slots) for dim in action]
+        initial_slots_selected = [dim % self.num_selectable_slots for dim in action]
+
+        logger.info(f" Nodes selected: {nodes_selected}")
+        logger.info(f" Paths selected: {k_paths_selected}")
+        logger.info(f" Slots selected: {initial_slots_selected}")
+
+        return nodes_selected, k_paths_selected, initial_slots_selected, {}
+
+    def mask_paths(self, vnet_size):
+        """Return the mask of permitted path actions."""
+        masks = []
+        nodes_selected = self.current_observation["selected_nodes"]
+
+        # Get all paths between node pairs
+        for k in range(self.k_paths):
+            mask = []
+            k_paths_selected = [k] * vnet_size
+            paths = self.get_links_from_selection(nodes_selected, k_paths_selected)
+
+            # Get all slots on each path
+            for i, path in enumerate(paths):
+                slots = self.get_path_slots(path)[: self.num_slots - self.current_VN_bandwidth[i]]
+                slots = np.pad(slots, (0, self.current_VN_bandwidth[i]), "constant", constant_values=0)[: self.num_selectable_slots]
+                mask.append(slots)
+
+            masks.append(np.stack(mask, axis=1))
+
+        total_mask = np.stack(masks, axis=0)
+        return total_mask
+
+    def action_masks(self):
+        request_size = self.current_VN_capacity.size
+        path_mask = self.mask_paths(request_size)
+        self.path_mask = path_mask
+        return path_mask

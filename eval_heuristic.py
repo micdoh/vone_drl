@@ -7,7 +7,7 @@ from pathlib import Path
 
 if __name__ == "__main__":
 
-    data_file = Path("/Users/michaeldoherty/git/vone_drl/runs/nsc_ksp_fdl/nsc_ksp_fdl_1.csv")
+    data_file = Path("/Users/michaeldoherty/git/vone_drl/runs/nsc_ksp_fdl/nsc_ksp_fdl_load_9.csv")
 
     data_file.parent.mkdir(exist_ok=True)
 
@@ -16,7 +16,7 @@ if __name__ == "__main__":
     episode_length = 5000
     env_args = dict(
         episode_length=episode_length,
-        load=6,
+        load=9,
         mean_service_holding_time=10,
         k_paths=k_paths,
         wandb_log=False,
