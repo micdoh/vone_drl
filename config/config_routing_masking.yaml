@@ -1,5 +1,5 @@
 project: VONE-DRL
-env_name: vone_Env-v0
+env_name: vone_Env_Routing_Masking-v0
 log_dir: ./runs
 data_file: ./runs/best_routing/train.csv
 model_file: ./runs/best_routing/routing_model.zip
