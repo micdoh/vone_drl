@@ -109,10 +109,11 @@ def test_vone_env_routing_masking(setup_vone_env_routing_masking):
     env = setup_vone_env_routing_masking
     obs = env.reset()
     model = MaskablePPO("MultiInputPolicy", env, gamma=0.4, seed=32, verbose=1)
-    n_steps = 10
+    n_steps = 100
     for _ in range(n_steps):
         # Random action
         action_masks = get_action_masks(env)
         action, _states = model.predict(obs, action_masks=action_masks)
         obs, reward, done, info = env.step(action)
+        print(info)
     assert 1 == 1
