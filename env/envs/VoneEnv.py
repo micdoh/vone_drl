@@ -176,8 +176,6 @@ class VoneEnv(gym.Env):
         self.generate_vnet_bw_request_tables()
 
         # action space sizes are maximum corresponding table size for maximum request size
-        # TODO - IDEA: Action space to become node-pair k-path choice (i.e. concurrent action space), such that it can be masked.
-        #  This leads to comb(comb(self.num_nodes, 2), self.max_vnet_size) * k total actions for node-path selection
         self.action_space = gym.spaces.MultiDiscrete(
             (
                 comb(self.num_nodes, self.max_vnet_size),
