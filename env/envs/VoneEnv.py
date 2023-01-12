@@ -1088,7 +1088,7 @@ class VoneEnvRoutingMasking(VoneEnvRoutingOnly):
 
             masks.append(np.stack(mask, axis=1))
 
-        total_mask = np.stack(masks, axis=0)
+        total_mask = np.concatenate(masks, axis=0)
         return total_mask
 
     def action_masks(self):
