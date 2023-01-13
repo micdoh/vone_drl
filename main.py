@@ -56,7 +56,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--learning_rate",
-        default=0.001,#0.0004681826280349342,
+        default=0.0004681826280349342,
         type=float,
         help="Learning rate for optimisation",
     )
@@ -115,6 +115,8 @@ if __name__ == "__main__":
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
+    conf["wandb_config"]["total_timesteps"] *= args.n_procs
+
     # Setup wandb run
     if not args.test:
         wandb.setup(wandb.Settings(program="main.py", program_relpath="main.py"))
@@ -122,8 +124,8 @@ if __name__ == "__main__":
             project=conf["project"],
             config=conf["wandb_config"],
             dir=conf["log_dir"],
-            sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
-            monitor_gym=True,  # auto-upload the videos of agents playing the game
+            #sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+            #monitor_gym=True,  # auto-upload the videos of agents playing the game
             save_code=True,  # optional
         )
         (
@@ -165,14 +167,15 @@ if __name__ == "__main__":
     )
 
     # Define callbacks
-    callbacks.append(
-        CustomCallback(
-            env=env,
-            data_file=conf["data_file"],
-            model_file=conf["model_file"],
-            save_model=args.save_model,
+    if args.save_model:
+        callbacks.append(
+            CustomCallback(
+                env=env,
+                data_file=conf["data_file"],
+                model_file=conf["model_file"],
+                save_model=args.save_model,
+            )
         )
-    )
 
     callback_list = CallbackList(callbacks)
 
