@@ -21,7 +21,6 @@ from util_funcs import get_nth_item
 
 logger = logging.getLogger(__name__)
 
-# TODO -Allow transparent or opaque VONE (which is it currently?)
 # TODO - Functionalise KMC-FF, KMF-FF
 # TODO - Plan experiments:
 #  1. all-in decision-making (train and run this to get max performance) = 1 option
@@ -30,18 +29,12 @@ logger = logging.getLogger(__name__)
 #  4. Random policy (could have any of combo of decision stages random) = 1-8 options
 #  So, need to
 
-# TODO - Define new env for routing-only with masking,
-#  where the chosen nodes are presented as part of the observation
-
-
 # TODO - Implement scaling of capacity
-# TODO - Accommodate transparent VONE case (continuity constraint)
 
-# TODO - Log arrival rate and load as metrics
+# TODO - IDEA: Change the reward on the basis of this network utilisation metric.
+#  Shaped reward for empty network and simple reward for full network (to allow more honest exploration)
 # TODO - Log different failure modes i.e. slot clash, insufficient node capacity, insufficient slots
-# TODO - Return the intra-episode acceptance rate, not just post post-episode.
-#  i.e. plot acceptance rate against number of request received. Could also incorporate into reward.
-# TODO - Define Selector class that would allow kSP-FF, -FDL, random, NSC, etc. to be easily interchanged
+# TODO - Define Selector class that would allow kSP-FF, -FDL, random, NSC, KMC, etc. to be easily interchanged
 
 
 fail_messages = {
@@ -52,7 +45,7 @@ fail_messages = {
     "slot_reuse": {"code": 5, "message": "Slot reused in request"},
 }
 
-class VoneEnv(gym.Env):
+class VoneEnvSortedSeparate(gym.Env):
     def __init__(
         self,
         episode_length: int,
@@ -563,12 +556,9 @@ class VoneEnv(gym.Env):
         Returns:
             path_slots: Array of slots that are either free or occupied along all links in path
         """
-        path_slots = np.ones(self.num_slots, dtype=int)
-        for i in range(len(path) - 1):
-            path_slots = (
-                path_slots
-                & self.topology.topology_graph.edges[path[i], path[i + 1]]["slots"]
-            )
+        path_slots = [self.topology.topology_graph.edges[path[i], path[i + 1]]["slots"] for i in range(len(path)-1)]
+        path_slots = np.stack(path_slots, axis=0)
+        path_slots = np.min(path_slots, axis=0)
         return path_slots
 
     def is_path_free(self, path, initial_slot, num_slots):
@@ -756,42 +746,6 @@ class VoneEnv(gym.Env):
         self.current_observation = obs_dict
         return obs_dict
 
-    def valid_action_mask(self):
-        # Action selection is node selection, path selection, slot selection
-        # TODO - make current request size an attribute
-        request_size = self.current_VN_capacity.size
-        node_capacities = self.current_observation["node_capacities"]
-        slot_capacities = self.current_observation["slots"]
-        # Masks need to be [true, false, ...] lists, with one list for each discrete action space.
-        # So need to return [[], [], []] from this function
-        # The logic to generate the lists can be derived from the logic used to generate the action tables maybe...
-        # Check nodes
-        node_table = np.array(list(self.generate_node_selection(request_size)))
-        node_mask = self.mask_nodes(request_size, node_capacities)
-        # Check slots: if block out slot selection and, if slots blocked on a path, block
-        slot_table = np.array(list(self.generate_slot_selection(request_size)))
-        slot_mask = self.generate_slot_mask(request_size, slot_capacities)
-        # Notes on masking:
-        # The decision-making sequence of nodes-path-slots requires the path selection to be known
-        # before the slot selection can be fully masked. Without knowing the selected path (and therefore links),
-        # the only way the slot selection can be masked is by masking any initial slots on individual links that
-        # don't have sufficient contiguous slots. So, essentially this is the only way masking can be achieved atm.
-        # To achieve true masking, we'll need to open up the policy network code to access the sequential
-        # decision-making, get the selected path, mask the slots, select an option, and then optionally,
-        # if no slots available for the chosen path, mask that path and renormalise the probabilities for the k-1
-        # paths remaining and re-mask the slots again until an action is possible.
-
-        path_table = np.array(list(self.generate_path_selection(request_size)))
-        link_table = self.link_selection_dict
-        # index = np.searchsorted(data, values)
-        return [True]
-
-    def check_network_utilisation(self):
-        # TODO - IDEA: Change the reward on the basis of this metric.
-        #  Shaped reward for empty network and simple reward for full network (to allow more honest exploration)
-        """Define metric for how 'full' the substrate network is"""
-        return True
-
     def print_topology(self):
         SN_C = np.zeros(self.num_nodes, dtype=int)
         SN_slots = np.zeros((self.num_links, self.num_slots), dtype=int)
@@ -809,7 +763,50 @@ class VoneEnv(gym.Env):
         logger.info(f"No. of services: {len(self.allocated_Service)}")
 
 
-class VoneEnvNodeSelectionOnly(VoneEnv):
+class VoneEnvUnsortedSeparate(VoneEnvSortedSeparate):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.sort_nodes = False
+        self.action_space = gym.spaces.MultiDiscrete(
+            (
+                len(self.generate_node_selection(3)),
+                self.k_paths**self.max_vnet_size,
+                self.num_selectable_slots ** self.max_vnet_size,
+            )
+        )
+
+    def generate_node_selection(self, vnet_size):
+        """Populate node_selection_dict with vnet_size: array pairs.
+        Array elements indicate node selections, indexed by action space action number"""
+        df = np.array(list(product(range(self.num_nodes), repeat=vnet_size)))
+        # Get duplicate node row indices and delete rows
+        a = (df[:, 0] == df[:, 1]) | (df[:, 1] == df[:, 2]) | (df[:, 0] == df[:, 2])
+        return np.delete(df, np.where(a), axis=0)
+
+    def mask_nodes(self, vnet_size, node_capacities):
+        """Return the mask of permitted node actions."""
+
+        node_capacities = dict(enumerate(node_capacities))
+
+        node_selection_table = self.generate_node_selection(self.current_VN_capacity.size)
+
+        node_cap_table = np.vectorize(
+            node_capacities.get
+        )(
+            node_selection_table
+        )
+
+        # Set elements to ture if node capacity is sufficient
+        node_mask = np.greater_equal(node_cap_table, self.current_VN_capacity)
+
+        # Set row to True if all elements True
+        node_mask = np.all(node_mask, axis=1)
+
+        return pd.Series(node_mask)
+
+
+class VoneEnvNodesSorted(VoneEnvSortedSeparate):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -859,7 +856,53 @@ class VoneEnvNodeSelectionOnly(VoneEnv):
         return node_mask
 
 
-class VoneEnvRoutingOnly(VoneEnv):
+class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.sort_nodes = False
+        # action space sizes are maximum corresponding table size for maximum request size
+        self.action_space = gym.spaces.Discrete(
+           len(self.generate_node_selection(3))
+        )
+
+    def select_nodes_paths_slots(self, action):
+        """Get selected nodes, paths, and slots from action.
+        KSP-FDL or FF"""
+        request_size = self.current_VN_capacity.size
+        # Get node selection (dependent on number of nodes in request)
+        nodes_selected = get_nth_item(
+            self.generate_node_selection(request_size), action
+        )
+        logger.info(f" Nodes selected: {nodes_selected}")
+
+        (
+            k_path_selected,
+            initial_slot_selected,
+            fail_info
+        ) = select_path_fdl(
+            self,
+            self.topology.topology_graph,
+            self.current_VN_bandwidth,
+            nodes_selected,
+        ) if self.ksp_fdl else select_path_ff(
+            self, nodes_selected
+        )
+
+        logger.info(f" Paths selected: {k_path_selected}")
+        logger.info(f" Initial slots selected: {initial_slot_selected}")
+
+        return nodes_selected, k_path_selected, initial_slot_selected, fail_info
+
+    def action_masks(self):
+        request_size = self.current_VN_capacity.size
+        node_capacities = self.current_observation["node_capacities"]
+        node_mask = self.mask_nodes(request_size, node_capacities)
+        self.node_mask = node_mask
+        return node_mask
+
+
+class VoneEnvRoutingSeparate(VoneEnvSortedSeparate):
     """Observation space is augmented to include selected nodes instead of node capacities.
     Nodes are selected by NSC ranking method."""
 
@@ -988,58 +1031,13 @@ class VoneEnvRoutingOnly(VoneEnv):
         return nodes_selected, k_paths_selected, initial_slots_selected, fail_info
 
     def valid_action_mask(self):
-        # TODO - Try reframing action space to be discrete to allow masking
         request_size = self.current_VN_capacity.size
         path_mask = self.mask_paths(request_size)
         self.path_mask = path_mask
         return path_mask
 
 
-class VoneEnvNoSorting(VoneEnvNodeSelectionOnly):
-    # TODO - Ensure this is compatible with vnet_size > 3 for future
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.sort_nodes = False
-        # action space sizes are maximum corresponding table size for maximum request size
-        self.action_space = gym.spaces.Discrete(
-           len(self.generate_node_selection(3))
-        )
-
-    def generate_node_selection(self, vnet_size):
-        """Populate node_selection_dict with vnet_size: array pairs.
-        Array elements indicate node selections, indexed by action space action number"""
-        df = np.array(list(product(range(self.num_nodes), repeat=vnet_size)))
-        return np.delete(df, self.get_duplicate_nodes_row_indices(df), axis=0)
-    # TODO - Either keep the duplicates in the action space and mask them or delete the duplicates from the action as well
-
-    def get_duplicate_nodes_row_indices(self, df):
-        # TODO - Make this work for vnets larger than 3
-        a = (df[:, 0] == df[:, 1]) | (df[:, 1] == df[:, 2]) | (df[:, 0] == df[:, 2])
-        return np.where(a)
-
-    def mask_nodes(self, vnet_size, node_capacities):
-        """Return the mask of permitted node actions."""
-
-        node_capacities = dict(enumerate(node_capacities))
-
-        node_selection_table = self.generate_node_selection(self.current_VN_capacity.size)
-
-        node_cap_table = np.vectorize(
-            node_capacities.get
-        )(
-            node_selection_table
-        )
-
-        # Set elements to ture if node capacity is sufficient
-        node_mask = np.greater_equal(node_cap_table, self.current_VN_capacity)
-
-        # Set row to True if all elements True
-        node_mask = np.all(node_mask, axis=1)
-
-        return pd.Series(node_mask)
-
-
-class VoneEnvRoutingMasking(VoneEnvRoutingOnly):
+class VoneEnvRoutingCombined(VoneEnvRoutingSeparate):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -1091,6 +1089,7 @@ class VoneEnvRoutingMasking(VoneEnvRoutingOnly):
             masks.append(np.stack(mask, axis=1))
 
         total_mask = np.concatenate(masks, axis=0)
+
         return total_mask
 
     def action_masks(self):

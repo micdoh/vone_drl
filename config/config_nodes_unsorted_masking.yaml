@@ -1,5 +1,5 @@
 project: VONE-DRL
-env_name: vone_Env_No_Sorting-v0
+env_name: vone_Env_Nodes_Unsorted-v0
 log_dir: ./runs
 data_file: ./runs/best_nodes/train.csv
 model_file: ./runs/best_nodes/nodes_model.zip

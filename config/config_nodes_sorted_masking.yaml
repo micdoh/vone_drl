@@ -1,8 +1,8 @@
 project: VONE-DRL
-env_name: vone_Env-v0
-log_dir: /Users/michaeldoherty/git/vone_drl/runs
-data_file: /Users/michaeldoherty/git/vone_drl/runs/best_model_agent/train.csv
-model_file: /Users/michaeldoherty/git/vone_drl/runs/best_model_agent/agent_load_9.zip
+env_name: vone_Env_Nodes_Sorted-v0
+log_dir: ./runs
+data_file: ./runs/best_nodes/train.csv
+model_file: ./runs/best_nodes/nodes_model.zip
 env_args:
     episode_length: 5000
     load: 9

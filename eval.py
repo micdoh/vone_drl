@@ -8,6 +8,7 @@ import random
 from stable_baselines3 import PPO
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.wrappers import ActionMasker
+from sb3_contrib.common.maskable.utils import get_action_masks
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
@@ -72,7 +73,7 @@ if __name__ == "__main__":
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
     results = []
-    for load in range(1, 11):
+    for load in [9]:#range(1, 11):
         callbacks = []
         conf["env_args"]["load"] = load
         env = gym.make(conf["env_name"], seed=load, **conf["env_args"])
@@ -86,20 +87,20 @@ if __name__ == "__main__":
         #     )
         # )
         # callback_list = CallbackList(callbacks)
-        agent_args = ("MultiInputPolicy", env)
-        model = (
-            MaskablePPO(*agent_args)
-            if args.masking
-            else PPO(*agent_args)
-        )
-        #model = PPO.load(args.model_file)
-        model.set_parameters(args.model_file)
-        eva = evaluate_policy(model, env, n_eval_episodes=1)#, callback=callbacks)
-        #obs = env.reset()
-        #for _ in range(5000):
+        # agent_args = ("MultiInputPolicy", env)
+        # model = (
+        #     MaskablePPO(*agent_args)
+        #     if args.masking
+        #     else PPO(*agent_args)
+        # )
+        model = MaskablePPO.load(args.model_file) if args.masking else PPO.load(args.model_file)
+        #model.set_parameters(args.model_file)
+        #eva = evaluate_policy(model, env, n_eval_episodes=1, return_episode_rewards=True)#, callback=callbacks)
+        obs = env.reset()
+        for _ in range(env.episode_length):
             # Random action
-            #action_masks = get_action_masks(env)
-        #    action, _states = model.predict(obs)#, action_masks=action_masks)
-        #    obs, reward, done, info = env.step(action)
-        results.append(eva)
+            action_masks = get_action_masks(env)
+            action, _states = model.predict(obs, action_masks=action_masks)
+            obs, reward, done, info = env.step(action)
+            results.append(info)
     print(results)
