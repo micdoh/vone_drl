@@ -109,13 +109,14 @@ class CustomCallback(BaseCallback):
                 if self.total_episode_reward > self.record_episode_reward:
 
                     self.record_episode_reward = self.total_episode_reward
-                    self.total_episode_reward = 0
 
                     if self.save_model:
                         logger.warning(
                             "Saving new best model to {}".format(self.model_file.resolve())
                         )
                         self.model.save(self.model_file)
+
+                self.total_episode_reward = 0
 
 
     def _on_rollout_end(self) -> None:

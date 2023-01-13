@@ -136,7 +136,7 @@ def rank_vnet_node_requirements(node_request) -> [(int, int, int)]:
     return rank_n_v
 
 
-def select_nodes_nsc(env: gym.Env, topology: Graph) -> ([int], dict):
+def select_nodes_nsc(env: gym.Env, topology: Graph, sort: bool = True) -> ([int], dict):
     """Return best node choice based on node switching capacity.
 
     Args:
@@ -169,7 +169,8 @@ def select_nodes_nsc(env: gym.Env, topology: Graph) -> ([int], dict):
     if successful_nodes == request_size:
         fail_info = {}
         # Sort so nodes appear in same order as in node selection table row
-        selected_nodes.sort()
+        if sort:
+            selected_nodes.sort()
     # Sometimes node without sufficient capacity is assigned (even tho one exists)
     # because NSC is calculated based on link capacity * node capacity.
     # So, to make sure there are no duplicate zeroes, we add this step.
@@ -369,7 +370,7 @@ def select_path_ff(env: gym.Env, nodes_selected: [int]):
     return k_paths_selected, initial_slots_selected, fail_info
 
 
-def nsc_ksp_fdl(the_env: gym.Env):
+def nsc_ksp_fdl(the_env: gym.Env, sort: bool = False):
     """
 
     Args:
@@ -392,7 +393,7 @@ def nsc_ksp_fdl(the_env: gym.Env):
 
         # Get node mapping by ranking according to Node Switching Capacity
         action_node, fail_info = select_nodes_nsc(
-            the_env, topology
+            the_env, topology, sort=sort,
         )
 
         # Get the requested bandwidth between nodes
