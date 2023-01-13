@@ -1,9 +1,16 @@
 import gym
-from env.envs.VoneEnv import VoneEnvSortedSeparate, VoneEnvUnsortedSeparate
 from heuristics import nsc_ksp_fdl
 import pandas as pd
 import os
 from pathlib import Path
+from env.envs.VoneEnv import (
+    VoneEnvUnsortedSeparate,
+    VoneEnvSortedSeparate,
+    VoneEnvNodesSorted,
+    VoneEnvNodesUnsorted,
+    VoneEnvRoutingSeparate,
+    VoneEnvRoutingCombined,
+)
 
 if __name__ == "__main__":
 

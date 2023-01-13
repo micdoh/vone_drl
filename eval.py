@@ -21,7 +21,14 @@ from callback import SaveOnBestTrainingRewardCallback, CustomCallback
 from log_init import init_logger
 from heuristics import nsc_ksp_fdl
 from util_funcs import mask_fn, make_env
-from env.envs.VoneEnv import VoneEnv, VoneEnvRoutingOnly, VoneEnvNodeSelectionOnly
+from env.envs.VoneEnv import (
+    VoneEnvUnsortedSeparate,
+    VoneEnvSortedSeparate,
+    VoneEnvNodesSorted,
+    VoneEnvNodesUnsorted,
+    VoneEnvRoutingSeparate,
+    VoneEnvRoutingCombined,
+)
 
 
 def define_paths(run_id, conf, loglevel):
