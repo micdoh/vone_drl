@@ -1,5 +1,5 @@
     project: VONE-DRL
-    name: "Agent Routing Masking"
+    name: "Agent Routing Separate"
     program: main.py
     method: bayes
     metric:
@@ -8,25 +8,22 @@
     parameters:
       learning_rate:
         min: 0.0003
-        max: 0.0025
+        max: 0.0015
       gamma:
         min: 0.5
         max: 0.7
       n_steps:
-        min: 50
-        max: 100
+        min: 40
+        max: 80
     command:
       - ${env}
       - ${interpreter}
       - ${program}
       - "--file"
-      - "./config/config_routing_masking.yaml"
+      - "./config/config_routing_separate.yaml"
       - "--log"
       - "WARN"
       - "--masking"
-      - "--multithread"
-      - "--n_procs"
-      - "4"
       - ${args}
     early_terminate:
       eta: 3
