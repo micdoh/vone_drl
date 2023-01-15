@@ -475,9 +475,9 @@ class VoneEnvSortedSeparate(gym.Env):
         self.request_generator()
         reward = self.reward()
         self.total_reward += reward
-        logger.info(f" Reward: {reward}")
 
         self.services_processed += 1
+        logger.info(f"Step: {self.services_processed}  Reward: {reward}")
 
         observation = self.observation()
         done = self.services_processed == self.episode_length
@@ -1085,8 +1085,18 @@ class VoneEnvRoutingCombined(VoneEnvRoutingSeparate):
 
             # Get all slots on each path
             for i, path in enumerate(paths):
-                slots = self.get_path_slots(path)[: self.num_slots - self.current_VN_bandwidth[i]]
-                slots = np.pad(slots, (0, self.current_VN_bandwidth[i]), "constant", constant_values=0)[: self.num_selectable_slots]
+                slots = self.get_path_slots(path)
+                # Set to zero the self.current_VN_bandwidth[i]-1 slots before any zero
+                zero_indices = np.asarray(slots == 0).nonzero()[0]
+                for i_zero in zero_indices:
+                    slots[
+                    # max to avoid negative index
+                    max(0, i_zero-self.current_VN_bandwidth[i]+1)
+                    : i_zero] = 0
+                # Set to zero the final block of size (bw-1)
+                slots = slots[: self.num_slots - self.current_VN_bandwidth[i] + 1]
+                slots = np.pad(slots, (0, self.current_VN_bandwidth[i]), "constant", constant_values=0)[
+                        : self.num_selectable_slots]
                 mask.append(slots)
 
             masks.append(np.stack(mask, axis=1))

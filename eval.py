@@ -106,8 +106,13 @@ if __name__ == "__main__":
         callbacks = []
         conf["env_args"]["load"] = load
         env = gym.make(conf["env_name"], seed=load, **conf["env_args"])
-
-        model = MaskablePPO.load(args.model_file) if args.masking else PPO.load(args.model_file)
+        agent_args = ("MultiInputPolicy", env)
+        model = (
+            MaskablePPO(*agent_args)
+            if args.masking
+            else PPO(*agent_args)
+        )
+        #model = MaskablePPO.load(args.model_file) if args.masking else PPO.load(args.model_file)
         #eva = evaluate_policy(model, env, n_eval_episodes=1, return_episode_rewards=True)
         obs = env.reset()
         for _ in range(env.episode_length):
