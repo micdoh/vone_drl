@@ -811,6 +811,29 @@ class VoneEnvUnsortedSeparate(VoneEnvSortedSeparate):
         return pd.Series(node_mask)
 
 
+class VoneEnvUnsortedCombined(VoneEnvUnsortedSeparate):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.define_action_space()
+
+    def define_action_space(self):
+        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
+        self.generate_vnet_cap_request_tables()
+        self.generate_vnet_bw_request_tables()
+
+        route_action_space_dims = tuple([self.k_paths*self.num_selectable_slots]) * self.max_vnet_size
+
+        # action space sizes are maximum corresponding table size for maximum request size
+        self.action_space = gym.spaces.MultiDiscrete(
+            (
+                len(self.generate_node_selection(3)),
+                *route_action_space_dims,
+            )
+        )
+        print(self.action_space)
+
+
 class VoneEnvNodesSorted(VoneEnvSortedSeparate):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -20,10 +20,9 @@
       - ${interpreter}
       - ${program}
       - "--file"
-      - "./config/config_nodes_unsorted_masking.yaml"
+      - "./config/config_agent.yaml"
       - "--log"
       - "WARN"
-      - "--masking"
       - ${args}
     early_terminate:
       eta: 3

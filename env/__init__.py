@@ -37,3 +37,8 @@ register(
     id="vone_Env_Routing_Combined-v0",
     entry_point="env.envs:VoneEnvRoutingCombined",
 )
+
+register(
+    id="vone_Env_Unsorted_Combined-v0",
+    entry_point="env.envs:VoneEnvUnsortedCombined",
+)
