@@ -43,6 +43,9 @@ fail_messages = {
     "slot_mapping": {"code": 3, "message": "Slot mapping failure"},
     "node_capacity": {"code": 4, "message": "Insufficient node capacity"},
     "slot_reuse": {"code": 5, "message": "Slot reused in request"},
+    "slot_occupied": {"code": 6, "message": "Selected initial slot is occupied"},
+    "end_of_band": {"code": 7, "message": "Insufficient neighbouring slots until end of band"},
+    "block_size": {"code": 8, "message": "Selected initial slot is of insufficient block size"},
 }
 
 class VoneEnvSortedSeparate(gym.Env):
@@ -153,7 +156,7 @@ class VoneEnvSortedSeparate(gym.Env):
         )
         self.obs_node_capacities = gym.spaces.MultiDiscrete((node_resource_capacity))
         self.obs_slots = gym.spaces.Box(
-            low=0, high=1, shape=(self.num_slots, self.num_links), dtype=int
+            low=0, high=1, shape=(self.num_links, self.num_slots), dtype=int
         )
         self.observation_space = gym.spaces.Dict(
             {
@@ -343,28 +346,28 @@ class VoneEnvSortedSeparate(gym.Env):
         nodes_selected = get_nth_item(
             self.generate_node_selection(request_size), action[0]
         )
-        logger.info(f" Nodes selected: {nodes_selected}")
+        logger.debug(f" Nodes selected: {nodes_selected}")
 
         # k_paths selected from the action
         k_path_selected = get_nth_item(
             self.generate_path_selection(request_size), action[1]
         )
-        logger.info(f" Paths selected: {k_path_selected}")
+        logger.debug(f" Paths selected: {k_path_selected}")
 
         # initial slot selected from the action
         initial_slot_selected = get_nth_item(
             self.generate_slot_selection(request_size), action[2]
         )
-        logger.info(f" Initial slots selected: {initial_slot_selected}")
+        logger.debug(f" Initial slots selected: {initial_slot_selected}")
 
         # Return empty dict at end for compatibility with other environments
         return nodes_selected, k_path_selected, initial_slot_selected, {}
 
     def step(self, action):
         """"""
-        logger.info(f" Timestep  : {self.services_processed}")
-        logger.info(f" Capacity  : {self.current_VN_capacity}")
-        logger.info(f" Bandwidth : {self.current_VN_bandwidth}")
+        logger.debug(f" Timestep  : {self.services_processed}")
+        logger.debug(f" Capacity  : {self.current_VN_capacity}")
+        logger.debug(f" Bandwidth : {self.current_VN_bandwidth}")
 
         path_list = []
         path_free = True
@@ -416,7 +419,8 @@ class VoneEnvSortedSeparate(gym.Env):
 
                 for i in range(request_size):
 
-                    current_path_free = self.is_path_free(
+                    # Check if slot is free
+                    current_path_free, fail_info = self.is_path_free(
                         path_list[i],
                         initial_slot_selected[i],
                         self.current_VN_bandwidth[i],
@@ -427,15 +431,17 @@ class VoneEnvSortedSeparate(gym.Env):
 
                     path_free = path_free & current_path_free
 
-                if not path_free:
-                    fail_info = fail_messages["slot_mapping"]
+                if path_free:  # Check for slot reuse in same request
 
-                path_free = path_free & self.is_slot_not_reused(
-                    path_list, initial_slot_selected, self.current_VN_bandwidth
-                )
+                    path_free = path_free & self.is_slot_not_reused(
+                        path_list, initial_slot_selected, self.current_VN_bandwidth
+                    )
 
-                if not path_free:
-                    fail_info = fail_messages["slot_reuse"]
+                    if not path_free:
+                        fail_info = fail_messages["slot_reuse"]
+
+                if fail_info:
+                    logger.info(fail_info.get("message"))
 
         else:
             fail_info = fail_messages["node_capacity"]
@@ -561,27 +567,23 @@ class VoneEnvSortedSeparate(gym.Env):
 
     def is_path_free(self, path, initial_slot, num_slots):
         """Check path that initial slot is free and start of block of sufficient capacity"""
-        # TODO - Refactor step() to allow failure messages from is_path_free and is_slot_reused into fail_info
+        initial_slot = int(initial_slot)
+        num_slots = int(num_slots)
         if initial_slot + num_slots > self.num_slots:
-            logger.info(
-                " Request failure: Selected initial slot does not have "
-                "sufficient neighbouring slots until end of band"
-            )
-            return False
+            fail_info = fail_messages["end_of_band"]
+            return False, fail_info
 
         path_slots = self.get_path_slots(path)
 
         if path_slots[initial_slot] == 0:
-            logger.info(" Request failure: Selected initial slot is occupied")
-            return False
+            fail_info = fail_messages["slot_occupied"]
+            return False, fail_info
 
         elif np.sum(path_slots[initial_slot: initial_slot + num_slots]) < num_slots:
-            logger.info(
-                " Request failure: Selected initial slot is of insufficient block size"
-            )
-            return False
+            fail_info = fail_messages["block_size"]
+            return False, fail_info
 
-        return True
+        return True, {}
 
     def is_slot_not_reused(self, paths, initial_slots, num_slots):
         """Check if requested slots clash in the same request
@@ -592,7 +594,9 @@ class VoneEnvSortedSeparate(gym.Env):
         # Get dictionary of link: [indices of paths that use link]
         for n, path in enumerate(paths):
             for i in range(len(path) - 1):
-                node_pairs[(path[i], path[i + 1])].append(n)
+                s = min([path[i], path[i + 1]])
+                d = max([path[i], path[i + 1]])
+                node_pairs[(s, d)].append(n)
 
         for link, n_paths in node_pairs.items():
 
@@ -605,8 +609,8 @@ class VoneEnvSortedSeparate(gym.Env):
                     for n in n_paths
                     for slot in range(initial_slots[n], initial_slots[n] + num_slots[n])
                 ]
+
                 if len(req_slots) != len(set(req_slots)):
-                    logger.info(" Request failure: Assigned slots clash in reused link")
                     return False
 
         return True
@@ -618,6 +622,7 @@ class VoneEnvSortedSeparate(gym.Env):
         )
 
     def map_service(self, service: Service):
+        """Update node and slot capacities"""
         # nodes mapping
         for i in range(len(service.nodes)):
             node_num = service.nodes[i]
@@ -729,12 +734,7 @@ class VoneEnvSortedSeparate(gym.Env):
             (slot_request_table == self.current_VN_bandwidth).all(axis=1)
         )[0]
 
-        slots_matrix = np.array(
-            [
-                self.topology.topology_graph.adj[edge[0]][edge[1]]["slots"]
-                for edge in self.topology.topology_graph.edges
-            ]
-        )
+        slots_matrix = self.get_slots_matrix()
 
         obs_dict = {
             "request": np.array([*node_act_int, *slot_act_int]),
@@ -743,6 +743,13 @@ class VoneEnvSortedSeparate(gym.Env):
         }
         self.current_observation = obs_dict
         return obs_dict
+
+    def get_slots_matrix(self):
+        return np.array(
+            [
+                slots for slots in nx.get_edge_attributes(self.topology.topology_graph, "slots").values()
+            ]
+        )
 
     def print_topology(self):
         SN_C = np.zeros(self.num_nodes, dtype=int)
@@ -795,7 +802,7 @@ class VoneEnvUnsortedSeparate(VoneEnvSortedSeparate):
             node_selection_table
         )
 
-        # Set elements to ture if node capacity is sufficient
+        # Set elements to True if node capacity is sufficient
         node_mask = np.greater_equal(node_cap_table, self.current_VN_capacity)
 
         # Set row to True if all elements True
@@ -826,7 +833,7 @@ class VoneEnvNodesSorted(VoneEnvSortedSeparate):
         nodes_selected = get_nth_item(
             self.generate_node_selection(request_size), action
         )
-        logger.info(f" Nodes selected: {nodes_selected}")
+        logger.debug(f" Nodes selected: {nodes_selected}")
 
         (
             k_path_selected,
@@ -841,8 +848,8 @@ class VoneEnvNodesSorted(VoneEnvSortedSeparate):
             self, nodes_selected
         )
 
-        logger.info(f" Paths selected: {k_path_selected}")
-        logger.info(f" Initial slots selected: {initial_slot_selected}")
+        logger.debug(f" Paths selected: {k_path_selected}")
+        logger.debug(f" Initial slots selected: {initial_slot_selected}")
 
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
@@ -872,7 +879,7 @@ class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
         nodes_selected = get_nth_item(
             self.generate_node_selection(request_size), action
         )
-        logger.info(f" Nodes selected: {nodes_selected}")
+        logger.debug(f" Nodes selected: {nodes_selected}")
 
         (
             k_path_selected,
@@ -887,8 +894,8 @@ class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
             self, nodes_selected
         )
 
-        logger.info(f" Paths selected: {k_path_selected}")
-        logger.info(f" Initial slots selected: {initial_slot_selected}")
+        logger.debug(f" Paths selected: {k_path_selected}")
+        logger.debug(f" Initial slots selected: {initial_slot_selected}")
 
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
@@ -926,7 +933,7 @@ class VoneEnvRoutingSeparate(VoneEnvSortedSeparate):
         node_resource_capacity = [self.node_capacity + 1] * self.num_nodes
         self.obs_node_capacities = gym.spaces.MultiDiscrete(node_resource_capacity)
         self.obs_slots = gym.spaces.Box(
-            low=0, high=1, shape=(self.num_slots, self.num_links), dtype=int
+            low=0, high=1, shape=(self.num_links, self.num_slots), dtype=int
         )
         self.observation_space = gym.spaces.Dict(
             {
@@ -971,12 +978,7 @@ class VoneEnvRoutingSeparate(VoneEnvSortedSeparate):
             (slot_request_table == self.current_VN_bandwidth).all(axis=1)
         )[0]
 
-        slots_matrix = np.array(
-            [
-                self.topology.topology_graph.adj[edge[0]][edge[1]]["slots"]
-                for edge in self.topology.topology_graph.edges
-            ]
-        )
+        slots_matrix = self.get_slots_matrix()
 
         obs_dict = {
             "request": np.array([*node_act_int, *slot_act_int]),
@@ -1022,13 +1024,13 @@ class VoneEnvRoutingSeparate(VoneEnvSortedSeparate):
                 self.generate_slot_selection(request_size), action[1]
             )
 
-        logger.info(f" Nodes selected: {nodes_selected}")
-        logger.info(f" Paths selected: {k_paths_selected}")
-        logger.info(f" Slots selected: {initial_slots_selected}")
+        logger.debug(f" Nodes selected: {nodes_selected}")
+        logger.debug(f" Paths selected: {k_paths_selected}")
+        logger.debug(f" Slots selected: {initial_slots_selected}")
 
         return nodes_selected, k_paths_selected, initial_slots_selected, fail_info
 
-    def valid_action_mask(self):
+    def action_masks(self):
         request_size = self.current_VN_capacity.size
         path_mask = self.mask_paths(request_size)
         self.path_mask = path_mask
@@ -1061,9 +1063,9 @@ class VoneEnvRoutingCombined(VoneEnvRoutingSeparate):
         k_paths_selected = [floor(dim / self.num_selectable_slots) for dim in action]
         initial_slots_selected = [dim % self.num_selectable_slots for dim in action]
 
-        logger.info(f" Nodes selected: {nodes_selected}")
-        logger.info(f" Paths selected: {k_paths_selected}")
-        logger.info(f" Slots selected: {initial_slots_selected}")
+        logger.debug(f" Nodes selected: {nodes_selected}")
+        logger.debug(f" Paths selected: {k_paths_selected}")
+        logger.debug(f" Slots selected: {initial_slots_selected}")
 
         return nodes_selected, k_paths_selected, initial_slots_selected, {}
 
@@ -1086,12 +1088,8 @@ class VoneEnvRoutingCombined(VoneEnvRoutingSeparate):
 
             masks.append(np.stack(mask, axis=1))
 
-        total_mask = np.concatenate(masks, axis=0)
+        total_mask_2d = np.concatenate(masks, axis=0)
+        df = pd.DataFrame(total_mask_2d)
+        total_mask_1d = np.concatenate([df[n] for n in range(vnet_size)], axis=0).astype(int)
 
-        return total_mask
-
-    def action_masks(self):
-        request_size = self.current_VN_capacity.size
-        path_mask = self.mask_paths(request_size)
-        self.path_mask = path_mask
-        return path_mask
+        return total_mask_1d
