@@ -909,12 +909,13 @@ class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
         return node_mask
 
 
-class VoneEnvRoutingSeparate(VoneEnvSortedSeparate):
+class VoneEnvRoutingSeparate(VoneEnvUnsortedSeparate):
     """Observation space is augmented to include selected nodes instead of node capacities.
     Nodes are selected by NSC ranking method."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.define_action_space()
 
     def define_observation_space(self):
         self.obs_request = gym.spaces.MultiDiscrete(
