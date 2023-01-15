@@ -69,8 +69,7 @@ class VoneEnvSortedSeparate(gym.Env):
         vnet_size_dist: str = "fixed",
         wandb_log: bool = False,
         routing_choose_k_paths: bool = False,
-        ksp_fdl: bool = False,
-        ksp_ff: bool = True,
+        ksp_fdl: bool = True,
         sort_nodes: bool = True,
     ):
         self.current_time = 0
@@ -103,7 +102,6 @@ class VoneEnvSortedSeparate(gym.Env):
         self.results = {}
         self.routing_choose_k_paths = routing_choose_k_paths
         self.ksp_fdl = ksp_fdl
-        self.ksp_ff = ksp_ff
         self.sort_nodes = sort_nodes
         self.num_selectable_slots = self.num_slots - self.min_slot_request + 1
 
@@ -348,28 +346,25 @@ class VoneEnvSortedSeparate(gym.Env):
         nodes_selected = get_nth_item(
             self.generate_node_selection(request_size), action[0]
         )
-        logger.debug(f" Nodes selected: {nodes_selected}")
 
         # k_paths selected from the action
         k_path_selected = get_nth_item(
             self.generate_path_selection(request_size), action[1]
         )
-        logger.debug(f" Paths selected: {k_path_selected}")
 
         # initial slot selected from the action
         initial_slot_selected = get_nth_item(
             self.generate_slot_selection(request_size), action[2]
         )
-        logger.debug(f" Initial slots selected: {initial_slot_selected}")
 
         # Return empty dict at end for compatibility with other environments
         return nodes_selected, k_path_selected, initial_slot_selected, {}
 
     def step(self, action):
         """"""
-        logger.debug(f" Timestep  : {self.services_processed}")
-        logger.debug(f" Capacity  : {self.current_VN_capacity}")
-        logger.debug(f" Bandwidth : {self.current_VN_bandwidth}")
+        logger.debug(f"Timestep  : {self.services_processed}")
+        logger.debug(f"Capacity  : {self.current_VN_capacity}")
+        logger.debug(f"Bandwidth : {self.current_VN_bandwidth}")
 
         path_list = []
         path_free = True
@@ -382,6 +377,10 @@ class VoneEnvSortedSeparate(gym.Env):
             initial_slot_selected,
             fail_info,
         ) = self.select_nodes_paths_slots(action)
+
+        logger.debug(f" Nodes selected: {nodes_selected}")
+        logger.debug(f" Paths selected: {k_path_selected}")
+        logger.debug(f" Initial slots selected: {initial_slot_selected}")
 
         # check substrate node capacity
         cap = self.get_node_capacities(nodes_selected=nodes_selected)
@@ -835,6 +834,19 @@ class VoneEnvUnsortedCombined(VoneEnvUnsortedSeparate):
         )
         print(self.action_space)
 
+    def select_nodes_paths_slots(self, action):
+        """Get selected nodes, paths, and slots from action"""
+        request_size = self.current_VN_capacity.size
+        # Get node selection (dependent on number of nodes in request)
+        nodes_selected = get_nth_item(
+            self.generate_node_selection(request_size), action[0]
+        )
+        k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action[1:]]
+        initial_slot_selected = [dim % self.num_selectable_slots for dim in action[1:]]
+
+        # Return empty dict at end for compatibility with other environments
+        return nodes_selected, k_path_selected, initial_slot_selected, {}
+
 
 class VoneEnvNodesSorted(VoneEnvSortedSeparate):
     def __init__(self, **kwargs):
@@ -854,11 +866,11 @@ class VoneEnvNodesSorted(VoneEnvSortedSeparate):
         """Get selected nodes, paths, and slots from action.
         KSP-FDL or FF"""
         request_size = self.current_VN_capacity.size
+
         # Get node selection (dependent on number of nodes in request)
         nodes_selected = get_nth_item(
             self.generate_node_selection(request_size), action
         )
-        logger.debug(f" Nodes selected: {nodes_selected}")
 
         (
             k_path_selected,
@@ -872,9 +884,6 @@ class VoneEnvNodesSorted(VoneEnvSortedSeparate):
         ) if self.ksp_fdl else select_path_ff(
             self, nodes_selected
         )
-
-        logger.debug(f" Paths selected: {k_path_selected}")
-        logger.debug(f" Initial slots selected: {initial_slot_selected}")
 
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
@@ -904,7 +913,6 @@ class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
         nodes_selected = get_nth_item(
             self.generate_node_selection(request_size), action
         )
-        logger.debug(f" Nodes selected: {nodes_selected}")
 
         (
             k_path_selected,
@@ -918,9 +926,6 @@ class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
         ) if self.ksp_fdl else select_path_ff(
             self, nodes_selected
         )
-
-        logger.debug(f" Paths selected: {k_path_selected}")
-        logger.debug(f" Initial slots selected: {initial_slot_selected}")
 
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
@@ -1050,10 +1055,6 @@ class VoneEnvRoutingSeparate(VoneEnvUnsortedSeparate):
                 self.generate_slot_selection(request_size), action[1]
             )
 
-        logger.debug(f" Nodes selected: {nodes_selected}")
-        logger.debug(f" Paths selected: {k_paths_selected}")
-        logger.debug(f" Slots selected: {initial_slots_selected}")
-
         return nodes_selected, k_paths_selected, initial_slots_selected, fail_info
 
     def action_masks(self):
@@ -1088,10 +1089,6 @@ class VoneEnvRoutingCombined(VoneEnvRoutingSeparate):
 
         k_paths_selected = [floor(dim / self.num_selectable_slots) for dim in action]
         initial_slots_selected = [dim % self.num_selectable_slots for dim in action]
-
-        logger.debug(f" Nodes selected: {nodes_selected}")
-        logger.debug(f" Paths selected: {k_paths_selected}")
-        logger.debug(f" Slots selected: {initial_slots_selected}")
 
         return nodes_selected, k_paths_selected, initial_slots_selected, {}
 

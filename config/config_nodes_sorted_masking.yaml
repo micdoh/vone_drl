@@ -18,6 +18,7 @@ env_args:
     min_vnet_size: 3
     max_vnet_size: 3
     vnet_size_dist: fixed
+    ksp_fdl: True
 wandb_config:
     policy_type: MultiInputPolicy
     total_timesteps: 135000
