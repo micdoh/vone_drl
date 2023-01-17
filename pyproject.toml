@@ -24,7 +24,7 @@ geneticalgorithm = "^1.0.2"
 progress = "^1.6"
 cffi = "^1.15.1"
 wandb = "^0.13.4"
-sb3-contrib = "^1.6.2"
+sb3-contrib = {git = "https://github.com/micdoh/stable-baselines3-contrib_mask.git"}
 nvidia-cuda-runtime-cu11 = {version = "^2022.4.25", markers = "sys_platform != 'darwin'"}
 tensorflow = "^2.10.0"
 ray = {version = "^2.1.0", markers = "sys_platform != 'win64'"}

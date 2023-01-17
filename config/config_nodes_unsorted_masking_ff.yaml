@@ -1,0 +1,24 @@
+project: VONE-DRL
+env_name: vone_Env_Nodes_Unsorted-v0
+log_dir: ./runs
+data_file: ./runs/best_nodes/train.csv
+model_file: ./runs/best_nodes/nodes_model.zip
+env_args:
+    episode_length: 5000
+    load: 9
+    mean_service_holding_time: 10
+    k_paths: 5
+    topology_name: nsfnet
+    num_slots: 16
+    node_capacity: 5
+    min_node_cap_request: 1
+    max_node_cap_request: 2
+    min_slot_request: 2
+    max_slot_request: 4
+    min_vnet_size: 3
+    max_vnet_size: 3
+    vnet_size_dist: fixed
+    ksp_fdl: False
+wandb_config:
+    policy_type: MultiInputPolicy
+    total_timesteps: 135000

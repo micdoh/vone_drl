@@ -109,13 +109,17 @@ if __name__ == "__main__":
         "--masking", action="store_true", help="Use invalid action masking"
     )
     parser.add_argument(
-        "--model_file", default="", type=str, help="Path to saved model zip file"
+        "--recurrent_masking", action="store_true", help="Use recurrent invalid action masking"
+    )
+    parser.add_argument(
+        "--model_file", default="", type=str, help="Path to model zip file for retraining"
     )
     parser.add_argument(
         "--save_model",
         action="store_true",
         help="Use callback to save model with best training reward",
     )
+
     args = parser.parse_args()
     conf = yaml.safe_load(Path(args.file).read_text())
     callbacks = []
@@ -175,6 +179,7 @@ if __name__ == "__main__":
 
     # Define callbacks
     if args.save_model:
+
         callbacks.append(
             CustomCallback(
                 env=env,
@@ -194,8 +199,9 @@ if __name__ == "__main__":
         learning_rate=args.learning_rate if not args.linear_scheduler else linear_schedule(args.learning_rate),
         gae_lambda=args.gae_lambda,
         n_steps=args.n_steps,
-        batch_size=args.batch_size,
+        batch_size=args.n_steps,#args.batch_size,
         tensorboard_log=tensorboard_log_file.resolve(),
+        recurrent_masking=args.recurrent_masking,
     )
     agent_args = ("MultiInputPolicy", env)
     model = (
@@ -203,10 +209,21 @@ if __name__ == "__main__":
         if args.masking
         else PPO(*agent_args, **agent_kwargs)
     )
+    # If retraining
+    if args.model_file:
+        logger.warn(f"Loading model for retraining: {args.model_file}")
+        model = MaskablePPO.load(args.model_file) if args.masking else PPO.load(args.model_file)
+        model.set_env(env)
 
     model.learn(
         total_timesteps=conf["wandb_config"]["total_timesteps"], callback=callback_list
     )
+
+    if args.save_model:
+
+        art = wandb.Artifact(Path(conf["model_file"]).stem, type="model")
+        art.add_file(conf["model_file"])
+        wandb.log_artifact(art)
 
     env.close()
     if not args.test:

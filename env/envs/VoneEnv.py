@@ -104,6 +104,9 @@ class VoneEnvSortedSeparate(gym.Env):
         self.ksp_fdl = ksp_fdl
         self.sort_nodes = sort_nodes
         self.num_selectable_slots = self.num_slots - self.min_slot_request + 1
+        self.nodes_selected = None
+        self.k_paths_selected = None
+        self.initial_slot_selected = None
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
@@ -287,7 +290,7 @@ class VoneEnvSortedSeparate(gym.Env):
         valid_actions = df_check_product.map(lambda x: 1 if x >= threshold else 0)
         return valid_actions
 
-    def mask_paths(self, vnet_size):
+    def mask_paths(self, vnet_size, nodes_selected):
         path_table = list(product(range(self.k_paths), repeat=vnet_size))
         return True
 
@@ -357,8 +360,20 @@ class VoneEnvSortedSeparate(gym.Env):
             self.generate_slot_selection(request_size), action[2]
         )
 
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
+
         # Return empty dict at end for compatibility with other environments
         return nodes_selected, k_path_selected, initial_slot_selected, {}
+
+    def assign_selections(self, nodes_selected, k_path_selected, initial_slot_selected):
+        self.nodes_selected = nodes_selected
+        self.k_path_selected = k_path_selected
+        self.initial_slot_selected = initial_slot_selected
+
+    def reset_selections(self):
+        self.nodes_selected = None
+        self.k_path_selected = None
+        self.initial_slot_selected = None
 
     def step(self, action):
         """"""
@@ -427,10 +442,12 @@ class VoneEnvSortedSeparate(gym.Env):
                         self.current_VN_bandwidth[i],
                     )
 
+                    path_free = path_free & current_path_free
+
                     if current_path_free:
                         self.num_path_accepted += 1
-
-                    path_free = path_free & current_path_free
+                    else:
+                        break
 
                 if path_free:  # Check for slot reuse in same request
 
@@ -495,6 +512,7 @@ class VoneEnvSortedSeparate(gym.Env):
             **fail_info
         }
         self.current_info = info
+        self.reset_selections()  # Remove selections for next step action masking
 
         return observation, reward, done, info
 
@@ -809,7 +827,7 @@ class VoneEnvUnsortedSeparate(VoneEnvSortedSeparate):
         # Set row to True if all elements True
         node_mask = np.all(node_mask, axis=1)
 
-        return pd.Series(node_mask)
+        return 1*node_mask
 
 
 class VoneEnvUnsortedCombined(VoneEnvUnsortedSeparate):
@@ -832,7 +850,6 @@ class VoneEnvUnsortedCombined(VoneEnvUnsortedSeparate):
                 *route_action_space_dims,
             )
         )
-        print(self.action_space)
 
     def select_nodes_paths_slots(self, action):
         """Get selected nodes, paths, and slots from action"""
@@ -844,8 +861,58 @@ class VoneEnvUnsortedCombined(VoneEnvUnsortedSeparate):
         k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action[1:]]
         initial_slot_selected = [dim % self.num_selectable_slots for dim in action[1:]]
 
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
+
         # Return empty dict at end for compatibility with other environments
         return nodes_selected, k_path_selected, initial_slot_selected, {}
+
+    def mask_paths(self, vnet_size, nodes_selected):
+        """Return the mask of permitted path actions."""
+        masks = []
+
+        if nodes_selected is None:
+            return np.array([1]*self.k_paths*self.num_selectable_slots*vnet_size)
+
+        # Get all paths between node pairs
+        for k in range(self.k_paths):
+            mask = []
+            k_paths_selected = [k] * vnet_size
+            paths = self.get_links_from_selection(nodes_selected, k_paths_selected)
+
+            # Get all slots on each path
+            for i, path in enumerate(paths):
+                slots = self.get_path_slots(path)
+                # Set to zero the self.current_VN_bandwidth[i]-1 slots before any zero
+                zero_indices = np.asarray(slots == 0).nonzero()[0]
+                for i_zero in zero_indices:
+                    slots[
+                    # max to avoid negative index
+                    max(0, i_zero-self.current_VN_bandwidth[i]+1)
+                    : i_zero] = 0
+                # Set to zero the final block of size (bw-1)
+                slots = slots[: self.num_slots - self.current_VN_bandwidth[i] + 1]
+                slots = np.pad(slots, (0, self.current_VN_bandwidth[i]), "constant", constant_values=0)[
+                        : self.num_selectable_slots]
+                mask.append(slots)
+
+            masks.append(np.stack(mask, axis=1))
+
+        total_mask_2d = np.concatenate(masks, axis=0)
+        df = pd.DataFrame(total_mask_2d)
+        total_mask_1d = np.concatenate([df[n] for n in range(vnet_size)], axis=0).astype(int)
+
+        return total_mask_1d
+
+    def action_masks(self):
+        request_size = self.current_VN_capacity.size
+        node_capacities = self.current_observation["node_capacities"]
+        if self.nodes_selected is None:
+            node_mask = self.mask_nodes(request_size, node_capacities)
+            self.node_mask = node_mask
+        else:
+            node_mask = self.node_mask
+        path_mask = self.mask_paths(request_size, self.nodes_selected)
+        return np.concatenate([node_mask, path_mask], axis=0).astype(int)
 
 
 class VoneEnvNodesSorted(VoneEnvSortedSeparate):
@@ -884,6 +951,8 @@ class VoneEnvNodesSorted(VoneEnvSortedSeparate):
         ) if self.ksp_fdl else select_path_ff(
             self, nodes_selected
         )
+
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
 
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
@@ -926,6 +995,8 @@ class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
         ) if self.ksp_fdl else select_path_ff(
             self, nodes_selected
         )
+
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
 
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
@@ -1028,38 +1099,40 @@ class VoneEnvRoutingSeparate(VoneEnvUnsortedSeparate):
 
         if self.routing_choose_k_paths:
 
-            k_paths_selected = get_nth_item(
+            k_path_selected = get_nth_item(
                 self.generate_path_selection(request_size), action
             )
 
             (
                 _,
-                initial_slots_selected,
+                initial_slot_selected,
                 fail_info,
             ) = select_path_fdl(
                 self,
                 self.topology.topology_graph,
                 self.current_VN_bandwidth,
                 nodes_selected,
-                k_paths_preselected=k_paths_selected,
+                k_paths_preselected=k_path_selected,
             ) if self.ksp_fdl else select_path_ff(
                 self, nodes_selected
             )
 
         else:
             fail_info = {}
-            k_paths_selected = get_nth_item(
+            k_path_selected = get_nth_item(
                 self.generate_path_selection(request_size), action[0]
             )
-            initial_slots_selected = get_nth_item(
+            initial_slot_selected = get_nth_item(
                 self.generate_slot_selection(request_size), action[1]
             )
 
-        return nodes_selected, k_paths_selected, initial_slots_selected, fail_info
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
+
+        return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
     def action_masks(self):
         request_size = self.current_VN_capacity.size
-        path_mask = self.mask_paths(request_size)
+        path_mask = self.mask_paths(request_size, self.current_observation["selected_nodes"])
         self.path_mask = path_mask
         return path_mask
 
@@ -1087,12 +1160,14 @@ class VoneEnvRoutingCombined(VoneEnvRoutingSeparate):
         # Get node selection (dependent on number of nodes in request)
         nodes_selected = self.current_observation["selected_nodes"]
 
-        k_paths_selected = [floor(dim / self.num_selectable_slots) for dim in action]
-        initial_slots_selected = [dim % self.num_selectable_slots for dim in action]
+        k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action]
+        initial_slot_selected = [dim % self.num_selectable_slots for dim in action]
 
-        return nodes_selected, k_paths_selected, initial_slots_selected, {}
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
 
-    def mask_paths(self, vnet_size):
+        return nodes_selected, k_path_selected, initial_slot_selected, {}
+
+    def mask_paths(self, vnet_size, nodes_selected):
         """Return the mask of permitted path actions."""
         masks = []
         nodes_selected = self.current_observation["selected_nodes"]
