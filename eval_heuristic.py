@@ -16,7 +16,7 @@ from env.envs.VoneEnv import (
 
 if __name__ == "__main__":
 
-    data_file = Path("/Users/michaeldoherty/git/vone_drl/models/nsc_ksp_fdl/nsc_ksp_fdl.csv")
+    data_file = Path("/eval/nsc_ksp_fdl/nsc_ksp_fdl_df.csv")
 
     data_file.parent.mkdir(exist_ok=True)
 
@@ -43,7 +43,7 @@ if __name__ == "__main__":
             results.append(result)
 
         df = pd.DataFrame(results)
-        df = df.mean() # Getting the mean reward and mean standard deviation of reward per episode
+        df = pd.DataFrame([df.mean().to_dict()])  # Getting the mean reward and mean standard deviation of reward per episode
         df.to_csv(data_file, mode='a', header=not os.path.exists(data_file))
         print(f"ep {ep} done")
 

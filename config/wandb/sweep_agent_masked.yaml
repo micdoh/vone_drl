@@ -1,5 +1,5 @@
     project: VONE-DRL
-    name: "Agent Unsorted Combined Masked"
+    name: "Agent Unsorted Combined Masked Linear"
     program: main.py
     method: bayes
     metric:
@@ -15,10 +15,6 @@
       n_steps:
         min: 40
         max: 80
-      linear_scheduler:
-        values:
-          - 0
-          - 1
     command:
       - ${env}
       - ${interpreter}

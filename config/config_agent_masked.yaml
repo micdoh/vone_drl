@@ -1,8 +1,8 @@
 project: VONE-DRL
 env_name: vone_Env_Unsorted_Combined-v0
 log_dir: ./runs
-data_file: ./runs/best_model_agent/train.csv
-model_file: ./runs/best_model_agent/agent_unsorted_combined.zip
+data_file: ./runs/best_model_precise/train.csv
+model_file: ./runs/best_model_precise/agent_precise.zip
 env_args:
     episode_length: 5000
     load: 9
@@ -20,4 +20,4 @@ env_args:
     vnet_size_dist: fixed
 wandb_config:
     policy_type: MultiInputPolicy
-    total_timesteps: 135000
+    total_timesteps: 270000

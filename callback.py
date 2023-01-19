@@ -18,7 +18,7 @@ class CustomCallback(BaseCallback):
     :param verbose: Verbosity level: 0 for no output, 1 for info messages, 2 for debug messages
     """
 
-    def __init__(self, data_file, model_file, env=None, verbose=0, save_every=1000, save_model=False):
+    def __init__(self, data_file, model_file, env=None, verbose=0, save_every=1000, save_model=False, train=True):
         super(CustomCallback, self).__init__(verbose)
         # Those variables will be accessible in the callback
         # (they are defined in the base class)
@@ -26,8 +26,8 @@ class CustomCallback(BaseCallback):
         # self.model = None  # type: BaseAlgorithm
         # An alias for self.model.get_env(), the environment used for training
         self.env = env  # type: Union[gym.Env, VecEnv, None]
-        self.data_file = Path(data_file)
-        self.model_file = Path(model_file)
+        self.data_file = Path(data_file) if isinstance(data_file, str) else data_file
+        self.model_file = Path(model_file) if isinstance(model_file, str) else model_file
         self.step_count = 0
         self.total_step_count = 0
         self.data = []
@@ -36,6 +36,7 @@ class CustomCallback(BaseCallback):
         self.record_episode_reward = 0
         self.save_model = save_model
         self.episode_length = env.get_attr("episode_length")[0]
+        self.train=train
         # Number of time the callback was called
         # self.n_calls = 0  # type: int
         # self.num_timesteps = 0  # type: int
@@ -94,12 +95,14 @@ class CustomCallback(BaseCallback):
 
             if self.step_count >= self.episode_length*len(current_info):
 
-                df = pd.DataFrame(self.data)
-                df.to_csv(self.data_file, mode='a', header=not os.path.exists(self.data_file))
-                self.data = []
-                logger.info(f"Appending callback data to {self.data_file.resolve()}")
+                if self.train:
+                    df = pd.DataFrame(self.data)
+                    df.to_csv(self.data_file, mode='a', header=not os.path.exists(self.data_file))
+                    logger.info(f"Appending callback data to {self.data_file.resolve()}")
 
+                self.data = []
                 self.step_count = 0
+
                 logger.warning(
                     f"No. timesteps: {self.total_step_count} \n"
                     f"Best mean reward: {self.record_episode_reward/self.episode_length:.2f} \n"

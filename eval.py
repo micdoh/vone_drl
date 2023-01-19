@@ -39,16 +39,10 @@ def define_paths(run_id, conf, loglevel):
     log_file = log_dir / f"{run_id}.log"
     logger = init_logger(log_file.absolute(), loglevel)
     logger.info(f"Config file {args.file} contents:\n {conf}")
-    model_save_file = log_dir / f"{run_id}_model.zip"
-    tensorboard_log_file = log_dir / f"{run_id}_tensorboard.log"
-    monitor_file = log_dir / f"{run_id}_monitor.csv"
     return (
         log_dir,
         log_file,
         logger,
-        model_save_file,
-        tensorboard_log_file,
-        monitor_file,
     )
 
 
@@ -85,6 +79,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output_file", default="", type=str, help="Path to output csv file"
     )
+    parser.add_argument(
+        "--artifact", default=None, type=str, help="Name of artiact to download from wandb"
+    )
+    parser.add_argument(
+        "--recurrent_masking", action="store_true", help="Use recurrent invalid action masking"
+    )
     args = parser.parse_args()
     conf = yaml.safe_load(Path(args.file).read_text())
 
@@ -92,29 +92,35 @@ if __name__ == "__main__":
         log_dir,
         log_file,
         logger,
-        model_save_file,
-        tensorboard_log_file,
-        monitor_file,
     ) = define_paths(0, conf, args.log)
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
     episode_length = conf["env_args"]["episode_length"]
 
+    if args.artifact is not None:
+        logger.warn(f"Downloading artifact {args.artifact}")
+        api = wandb.Api()
+        artifact = api.artifact(args.artifact)
+        model_file = artifact.download(root=Path(args.output_file).parent) / f"{artifact.name.split(':')[0]}.zip"
+    else:
+        model_file = args.model_file
+
     results = []
     for load in range(args.min_load, args.max_load + 1):
         callbacks = []
         conf["env_args"]["load"] = load
-        env = gym.make(conf["env_name"], seed=load, **conf["env_args"])
+        #env = gym.make(conf["env_name"], seed=load, **conf["env_args"])
         env = [make_env(conf["env_name"], seed=load, **conf["env_args"])]
         env = (DummyVecEnv(env))
         agent_args = ("MultiInputPolicy", env)
+        agent_kwargs = dict(recurrent_masking=args.recurrent_masking)
         model = (
-            MaskablePPO(*agent_args)
+            MaskablePPO(*agent_args, **agent_kwargs)
             if args.masking
-            else PPO(*agent_args)
+            else PPO(*agent_args, **agent_kwargs)
         )
-        model.set_parameters(args.model_file)
+        model.set_parameters(model_file)
         #model = MaskablePPO.load(args.model_file) if args.masking else PPO.load(args.model_file)
         eva = evaluate_policy(model, env, n_eval_episodes=3, use_masking=args.eval_masking)
         results.append({

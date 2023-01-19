@@ -68,7 +68,7 @@ if __name__ == "__main__":
         help="Learning rate for optimisation",
     )
     parser.add_argument(
-        "--gamma", default=0.6131640958222716, type=float, help="Discount factor"
+        "--gamma", default=0.5909833572984414 , type=float, help="Discount factor"
     )
     parser.add_argument(
         "--gae_lambda",
@@ -113,6 +113,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--model_file", default="", type=str, help="Path to model zip file for retraining"
+    )
+    parser.add_argument(
+        "--artifact", default="", type=str, help="Name of artiact to download from wandb"
     )
     parser.add_argument(
         "--save_model",
@@ -184,8 +187,9 @@ if __name__ == "__main__":
             CustomCallback(
                 env=env,
                 data_file=conf["data_file"],
-                model_file=conf["model_file"],
+                model_file=model_save_file,
                 save_model=args.save_model,
+                train=True,
             )
         )
 
@@ -212,7 +216,15 @@ if __name__ == "__main__":
     # If retraining
     if args.model_file:
         logger.warn(f"Loading model for retraining: {args.model_file}")
-        model = MaskablePPO.load(args.model_file) if args.masking else PPO.load(args.model_file)
+        model.set_parameters(args.model_file)
+        model.set_env(env)
+
+    elif args.artifact:
+        logger.warn(f"Loading model for retraining: {args.artifact}")
+        artifact = run.use_artifact(args.artifact, type='model')
+        artifact_file = artifact.download(root=log_dir.resolve()) / f"{artifact.name.split(':')[0]}.zip"
+        logger.warn(f"Artifact file: {artifact_file.resolve()}")
+        model.set_parameters(artifact_file)
         model.set_env(env)
 
     model.learn(
@@ -221,8 +233,8 @@ if __name__ == "__main__":
 
     if args.save_model:
 
-        art = wandb.Artifact(Path(conf["model_file"]).stem, type="model")
-        art.add_file(conf["model_file"])
+        art = wandb.Artifact(model_save_file.stem, type="model")
+        art.add_file(model_save_file.resolve())
         wandb.log_artifact(art)
 
     env.close()
