@@ -1,9 +1,8 @@
 project: VONE-DRL
 env_name: vone_Env-v0
-log_dir: /User/git/vone_drl/runs
 env_args:
     episode_length: 5000
-    load: 3
+    load: 9
     mean_service_holding_time: 10
     k_paths: 5
     topology_name: nsfnet
@@ -16,6 +15,3 @@ env_args:
     min_vnet_size: 3
     max_vnet_size: 3
     vnet_size_dist: fixed
-wandb_config:
-    policy_type: MultiInputPolicy
-    total_timesteps: 60000
