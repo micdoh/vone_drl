@@ -1,126 +1,67 @@
-import gym
 import yaml
 import wandb
-import argparse
-import numpy as np
+import pandas as pd
 import os
-import random
 from stable_baselines3 import PPO
 from sb3_contrib import MaskablePPO
-from sb3_contrib.common.wrappers import ActionMasker
-from sb3_contrib.common.maskable.utils import get_action_masks
-from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
-from stable_baselines3.common.evaluation import evaluate_policy
 from pathlib import Path
-from typing import Callable
 from datetime import datetime
+from sb3_contrib.common.maskable.evaluation import evaluate_policy
 from stable_baselines3.common.callbacks import CallbackList
 from wandb.integration.sb3 import WandbCallback
-from callback import SaveOnBestTrainingRewardCallback, CustomCallback
-from log_init import init_logger
-from heuristics import nsc_ksp_fdl
-from util_funcs import mask_fn, make_env
-from env.envs.VoneEnv import (
-    VoneEnvUnsortedSeparate,
-    VoneEnvSortedSeparate,
-    VoneEnvNodesSorted,
-    VoneEnvNodesUnsorted,
-    VoneEnvRoutingSeparate,
-    VoneEnvRoutingCombined,
-)
-import time
-
-
-def define_paths(run_id, conf, loglevel):
-    log_dir = Path(conf["log_dir"])
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = log_dir / f"{run_id}.log"
-    logger = init_logger(log_file.absolute(), loglevel)
-    logger.info(f"Config file {args.file} contents:\n {conf}")
-    model_save_file = log_dir / f"{run_id}_model.zip"
-    tensorboard_log_file = log_dir / f"{run_id}_tensorboard.log"
-    monitor_file = log_dir / f"{run_id}_monitor.csv"
-    return (
-        log_dir,
-        log_file,
-        logger,
-        model_save_file,
-        tensorboard_log_file,
-        monitor_file,
-    )
+from callback import CustomCallback
+from util_funcs import mask_fn, make_env, define_logs, parse_args
+import env.envs.VoneEnv as VoneEnv
 
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-f", "--file", type=str, help="Absolute path to config file for run"
-    )
-    parser.add_argument(
-        "--n_procs",
-        default=1,
-        type=int,
-        help="No. of processes to run parallel environments",
-    )
-    parser.add_argument(
-        "--min_load",
-        default=1,
-        type=int,
-        help="Min. of range of loads to evaluate",
-    )
-    parser.add_argument(
-        "--max_load",
-        default=10,
-        type=int,
-        help="Max. of range of loads to evaluate",
-    )
-    parser.add_argument(
-        "--multithread",
-        action="store_true",
-        help="Bool to use parallel processes with vectorised environments",
-    )
-    parser.add_argument("--log", default="INFO", type=str, help="Set log level")
-    parser.add_argument(
-        "--masking", action="store_true", help="Use invalid action masking"
-    )
-    parser.add_argument(
-        "--model_file", default="", type=str, help="Path to saved model zip file"
-    )
-    args = parser.parse_args()
+    args = parse_args()
     conf = yaml.safe_load(Path(args.file).read_text())
 
     (
         log_dir,
         log_file,
         logger,
-        model_save_file,
-        tensorboard_log_file,
-        monitor_file,
-    ) = define_paths(0, conf, args.log)
+        model_save_file
+    ) = define_logs(args.eval_id, conf, args.log)
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+
+    episode_length = conf["env_args"]["episode_length"]
+
+    if args.artifact is not None:
+        logger.warn(f"Downloading artifact {args.artifact}")
+        api = wandb.Api()
+        artifact = api.artifact(args.artifact)
+        model_file = artifact.download(root=Path(args.output_file).parent) / f"{artifact.name.split(':')[0]}.zip"
+    else:
+        model_file = args.model_file
 
     results = []
     for load in range(args.min_load, args.max_load + 1):
         callbacks = []
         conf["env_args"]["load"] = load
-        env = gym.make(conf["env_name"], seed=load, **conf["env_args"])
+        env = [make_env(conf["env_name"], seed=load, **conf["env_args"])]
+        env = (DummyVecEnv(env))
         agent_args = ("MultiInputPolicy", env)
+        agent_kwargs = dict(recurrent_masking=args.multistep_masking)
         model = (
-            MaskablePPO(*agent_args)
+            MaskablePPO(*agent_args, **agent_kwargs)
             if args.masking
-            else PPO(*agent_args)
+            else PPO(*agent_args, **agent_kwargs)
         )
-        #model = MaskablePPO.load(args.model_file) if args.masking else PPO.load(args.model_file)
-        #eva = evaluate_policy(model, env, n_eval_episodes=1, return_episode_rewards=True)
-        obs = env.reset()
-        for _ in range(env.episode_length):
+        model.set_parameters(model_file)
+        eva = evaluate_policy(model, env, n_eval_episodes=3, use_masking=args.eval_masking)
+        results.append({
+            "load": load,
+            "reward": eva[0]/episode_length,
+            "std": eva[1]/episode_length,
+            "blocking": (10-(eva[0]/episode_length))/10,
+            "blocking_std": (eva[1]/episode_length)/10,
+        })
 
-            action_masks = get_action_masks(env)
-            action, _states = model.predict(obs, action_masks=action_masks)
-            obs, reward, done, info = env.step(action)
-
-            results.append(info)
-
+    df = pd.DataFrame(results)
+    df.to_csv(args.output_file, mode='a', header=not os.path.exists(args.output_file))
     print(results)

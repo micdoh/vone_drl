@@ -6,15 +6,13 @@ import stable_baselines3.common.env_checker
 from pathlib import Path
 from sb3_contrib.common.wrappers import ActionMasker
 from sb3_contrib.common.maskable.utils import get_action_masks
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from sb3_contrib import MaskablePPO
 from env.envs.VoneEnv import (
-    VoneEnv,
-    VoneEnvRoutingOnly,
-    VoneEnvNodeSelectionOnly,
-    VoneEnvNoSorting,
-    VoneEnvRoutingMasking
+    VoneEnvUnsortedSeparate, VoneEnvSortedSeparate, VoneEnvNodesSorted, VoneEnvNodesUnsorted, VoneEnvRoutingSeparate, VoneEnvRoutingCombined, VoneEnvUnsortedCombined
 )
 from heuristics import *
+from util_funcs import *
 
 
 @pytest.fixture
@@ -32,6 +30,20 @@ def setup_vone_env_no_node_sorting():
     env = gym.make(
         conf["env_name"], **conf["env_args"], seed=1
     )
+    return env
+
+
+@pytest.fixture
+def setup_env_agent_masked():
+    conf = yaml.safe_load(Path("./test/config_agent_masked.yaml").read_text())
+    env = gym.make(
+        conf["env_name"], **conf["env_args"], seed=1
+    )
+    env = [
+        make_env(conf["env_name"], seed=i, **conf["env_args"])
+        for i in range(1)
+    ]
+    env = DummyVecEnv(env)
     return env
 
 
@@ -116,4 +128,17 @@ def test_vone_env_routing_masking(setup_vone_env_routing_masking):
         action, _states = model.predict(obs, action_masks=action_masks)
         obs, reward, done, info = env.step(action)
         print(info)
+    assert 1 == 1
+
+def test_env_agent_masked(setup_env_agent_masked):
+    env = setup_env_agent_masked
+    #selection = getattr(env, "select_nodes_paths_slots")(1,2,3)
+    selection = env.get_attr("select_nodes_paths_slots")[0]([1,2,3])
+    obs = env.reset()
+    n_steps = 10
+    for _ in range(n_steps):
+        # Random action
+        action = env.action_space.sample()
+        obs, reward, done, info = env.step(action)
+        action_mask = env.action_masks()
     assert 1 == 1

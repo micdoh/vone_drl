@@ -11,3 +11,5 @@ config/config[0-9]*
 eval/
 wandb/
 models/
+figures/
+/config/archive/

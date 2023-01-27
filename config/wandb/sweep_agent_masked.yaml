@@ -1,5 +1,5 @@
     project: VONE-DRL
-    name: "Agent Unsorted Combined"
+    name: "Agent Unsorted Combined Masked Linear"
     program: main.py
     method: bayes
     metric:
@@ -8,7 +8,7 @@
     parameters:
       learning_rate:
         min: 0.0003
-        max: 0.0015
+        max: 0.002
       gamma:
         min: 0.5
         max: 0.7
@@ -20,11 +20,13 @@
       - ${interpreter}
       - ${program}
       - "--file"
-      - "./config/config_nodes_unsorted_masking.yaml"
+      - "./config/config_agent_masked.yaml"
       - "--log"
       - "WARN"
       - "--masking"
       - "--recurrent_masking"
+      - "--linear_scheduler=1"
+      - "--save_model"
       - ${args}
     early_terminate:
       eta: 3

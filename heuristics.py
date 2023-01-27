@@ -18,6 +18,7 @@ loop num_episodes:
 """
 
 import numpy as np
+import pandas as pd
 import gym
 import random
 import logging
@@ -342,18 +343,11 @@ def select_path_ff(env: gym.Env, nodes_selected: [int]):
                 break
 
             # Get Links
-            path_list = []
-            for j in range(len(nodes_selected) - 1):
-                path_list.append(
-                    env.link_selection_dict[nodes_selected[j], nodes_selected[j + 1]][k]
-                )
-            path_list.append(
-                env.link_selection_dict[nodes_selected[0], nodes_selected[-1]][k]
-            )
+            path_list = env.get_links_from_selection(nodes_selected, [k]*request_size)
 
             for i_slot in range(env.num_slots - env.current_VN_bandwidth[i_req]):
                 # Check each slot in turn to see if free
-                current_path_free = env.is_path_free(
+                current_path_free, fail_info = env.is_path_free(
                     path_list[i_req], i_slot, env.current_VN_bandwidth[i_req]
                 )
 
@@ -363,9 +357,8 @@ def select_path_ff(env: gym.Env, nodes_selected: [int]):
                     break
 
         if not current_path_free:
-            k_paths_selected.append(-1)
-            initial_slots_selected.append(-1)
-            fail_info = fail_messages["path_mapping"]
+            k_paths_selected.append(0)
+            initial_slots_selected.append(0)
 
     return k_paths_selected, initial_slots_selected, fail_info
 
@@ -383,6 +376,7 @@ def nsc_ksp_fdl(the_env: gym.Env, sort: bool = False):
 
     topology_0, _ = the_env.render()
     topology = deepcopy(topology_0)
+    info = {}
     info_list = []
 
     step = 0
@@ -433,7 +427,12 @@ def nsc_ksp_fdl(the_env: gym.Env, sort: bool = False):
 
     logger.info(info)
 
-    return info_list
+    df = pd.DataFrame(info_list)
+
+    results = {"load": the_env.load, "reward": df["reward"].mean(), "std": df["reward"].std()}
+    logger.info(results)
+
+    return results
 
 
 def select_random_action(env: gym.Env, action_index: int = None) -> int or np.ndarray:

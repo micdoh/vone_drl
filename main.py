@@ -1,148 +1,46 @@
-import gym
 import yaml
 import wandb
-import argparse
-import numpy as np
-import os
-import random
 from stable_baselines3 import PPO
 from sb3_contrib import MaskablePPO
-from sb3_contrib.common.wrappers import ActionMasker
-from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
-from stable_baselines3.common.evaluation import evaluate_policy
 from pathlib import Path
-from typing import Callable
 from datetime import datetime
 from stable_baselines3.common.callbacks import CallbackList
 from wandb.integration.sb3 import WandbCallback
-from callback import SaveOnBestTrainingRewardCallback, CustomCallback
-from log_init import init_logger
-from heuristics import nsc_ksp_fdl
-from util_funcs import mask_fn, make_env, linear_schedule
-from env.envs.VoneEnv import (
-    VoneEnvUnsortedSeparate,
-    VoneEnvSortedSeparate,
-    VoneEnvNodesSorted,
-    VoneEnvNodesUnsorted,
-    VoneEnvRoutingSeparate,
-    VoneEnvRoutingCombined,
-)
-
-
-def define_paths(run_id, conf, loglevel):
-    log_dir = Path(conf["log_dir"])
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = log_dir / f"{run_id}.log"
-    logger = init_logger(log_file.absolute(), loglevel)
-    logger.info(f"Config file {args.file} contents:\n {conf}")
-    model_save_file = log_dir / f"{run_id}_model.zip"
-    tensorboard_log_file = log_dir / f"{run_id}_tensorboard.log"
-    monitor_file = log_dir / f"{run_id}_monitor.csv"
-    return (
-        log_dir,
-        log_file,
-        logger,
-        model_save_file,
-        tensorboard_log_file,
-        monitor_file,
-    )
+from callback import CustomCallback
+from util_funcs import make_env, define_logs, choose_schedule, parse_args
+import env.envs.VoneEnv as VoneEnv
 
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-f", "--file", type=str, help="Absolute path to config file for run"
-    )
-    parser.add_argument(
-        "-t",
-        "--test",
-        action="store_true",
-        help="Disable additional features e.g. weights and biases logging",
-    )
-    parser.add_argument(
-        "--learning_rate",
-        default=0.0004681826280349342,
-        type=float,
-        help="Learning rate for optimisation",
-    )
-    parser.add_argument(
-        "--gamma", default=0.6131640958222716, type=float, help="Discount factor"
-    )
-    parser.add_argument(
-        "--gae_lambda",
-        default=0.908,
-        type=float,
-        help="Factor for trade-off of bias vs variance for Generalized Advantage Estimator",
-    )
-    parser.add_argument(
-        "--n_steps",
-        default=47,
-        type=int,
-        help="The number of steps to run for each environment per update "
-        "(i.e. rollout buffer size is n_steps * n_envs where n_envs "
-        "is number of environment copies running in parallel)",
-    )
-    parser.add_argument(
-        "--linear_scheduler",
-        default=0,
-        type=int,
-        help="Use linear schedule to decay learning rate",
-    )
-    parser.add_argument(
-        "--batch_size", default=64, type=str, help="No. of samples per batch"
-    )
-    parser.add_argument(
-        "--n_procs",
-        default=1,
-        type=int,
-        help="No. of processes to run parallel environments",
-    )
-    parser.add_argument(
-        "--multithread",
-        action="store_true",
-        help="Bool to use parallel processes with vectorised environments",
-    )
-    parser.add_argument("--log", default="WARN", type=str, help="Set log level")
-    parser.add_argument(
-        "--masking", action="store_true", help="Use invalid action masking"
-    )
-    parser.add_argument(
-        "--model_file", default="", type=str, help="Path to saved model zip file"
-    )
-    parser.add_argument(
-        "--save_model",
-        action="store_true",
-        help="Use callback to save model with best training reward",
-    )
-    args = parser.parse_args()
+    args = parse_args()
     conf = yaml.safe_load(Path(args.file).read_text())
     callbacks = []
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
-    conf["wandb_config"]["total_timesteps"] *= args.n_procs
+    args.total_timesteps *= args.n_procs
 
     # Setup wandb run
     if not args.test:
+
         wandb.setup(wandb.Settings(program="main.py", program_relpath="main.py"))
         run = wandb.init(
             project=conf["project"],
-            config=conf["wandb_config"],
-            dir=conf["log_dir"],
-            #sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
-            #monitor_gym=True,  # auto-upload the videos of agents playing the game
+            dir=args.log_dir,
+            monitor_gym=False,  # auto-upload the videos of agents playing the game
             save_code=True,  # optional
         )
+        wandb.config.update(args)
+        wandb.config.update(conf)
+        run.name = args.id if args.id else run.id
         (
             log_dir,
             log_file,
             logger,
             model_save_file,
-            tensorboard_log_file,
-            monitor_file,
-        ) = define_paths(run.id, conf, args.log)
+        ) = define_logs(run.id, args.log_dir, args.log)
         callbacks.append(
             WandbCallback(
                 gradient_save_freq=0,
@@ -152,15 +50,14 @@ if __name__ == "__main__":
         wandb.define_metric("episode_number")
         wandb.define_metric("acceptance_ratio", step_metric="episode_number")
         conf["env_args"]["wandb_log"] = True
+
     else:
         (
             log_dir,
             log_file,
             logger,
             model_save_file,
-            tensorboard_log_file,
-            monitor_file,
-        ) = define_paths(start_time, conf, args.log)
+        ) = define_logs(start_time, args.log_dir, args.log)
 
     # Setup environment
     env = [
@@ -175,12 +72,14 @@ if __name__ == "__main__":
 
     # Define callbacks
     if args.save_model:
+
         callbacks.append(
             CustomCallback(
                 env=env,
                 data_file=conf["data_file"],
-                model_file=conf["model_file"],
+                model_file=model_save_file,
                 save_model=args.save_model,
+                save_episode_info=args.save_episode_info,
             )
         )
 
@@ -191,22 +90,46 @@ if __name__ == "__main__":
         verbose=0,
         device="cuda",
         gamma=args.gamma,
-        learning_rate=args.learning_rate if not args.linear_scheduler else linear_schedule(args.learning_rate),
+        learning_rate=choose_schedule(args.schedule, args.learning_rate),
         gae_lambda=args.gae_lambda,
         n_steps=args.n_steps,
-        batch_size=args.batch_size,
-        tensorboard_log=tensorboard_log_file.resolve(),
+        batch_size=args.batch_size if args.batch_size else args.n_steps,
+        multistep_masking=args.multistep_masking,
+        multistep_masking_terms=args.multistep_masking_terms,
+        action_interpreter=args.action_interpreter,
+
     )
     agent_args = ("MultiInputPolicy", env)
+
     model = (
         MaskablePPO(*agent_args, **agent_kwargs)
         if args.masking
         else PPO(*agent_args, **agent_kwargs)
     )
 
+    # If retraining
+    if args.model_file:
+        logger.warn(f"Loading model for retraining: {args.model_file}")
+        model.set_parameters(args.model_file)
+        model.set_env(env)
+
+    elif args.artifact:
+        logger.warn(f"Loading model for retraining: {args.artifact}")
+        artifact = run.use_artifact(args.artifact, type='model')
+        artifact_file = artifact.download(root=log_dir.resolve()) / f"{artifact.name.split(':')[0]}.zip"
+        logger.warn(f"Artifact file: {artifact_file.resolve()}")
+        model.set_parameters(artifact_file)
+        model.set_env(env)
+
     model.learn(
-        total_timesteps=conf["wandb_config"]["total_timesteps"], callback=callback_list
+        total_timesteps=conf["total_timesteps"], callback=callback_list
     )
+
+    if args.save_model:
+
+        art = wandb.Artifact(model_save_file.stem, type="model")
+        art.add_file(model_save_file.resolve())
+        wandb.log_artifact(art)
 
     env.close()
     if not args.test:
