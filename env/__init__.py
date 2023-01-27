@@ -1,44 +1,22 @@
 from env.envs.VoneEnv import (
-    VoneEnvUnsortedSeparate,
-    VoneEnvSortedSeparate,
-    VoneEnvNodesSorted,
-    VoneEnvNodesUnsorted,
-    VoneEnvRoutingSeparate,
-    VoneEnvRoutingCombined,
+    VoneEnv,
+    VoneEnvNodes,
+    VoneEnvPaths,
 )
 from gym.envs.registration import register
 
 register(
-    id="vone_Env_Sorted_Separate-v0",
-    entry_point="env.envs:VoneEnvSortedSeparate",
+    id="vone_Env-v0",
+    entry_point="env.envs:VoneEnv",
 )
 
 register(
-    id="vone_Env_Unsorted_Separate-v0",
-    entry_point="env.envs:VoneEnvUnsortedSeparate",
+    id="vone_Env_Nodes-v0",
+    entry_point="env.envs:VoneEnvNodes",
 )
 
 register(
-    id="vone_Env_Nodes_Sorted-v0",
-    entry_point="env.envs:VoneEnvNodesSorted",
+    id="vone_Env_Paths-v0",
+    entry_point="env.envs:VoneEnvPaths",
 )
 
-register(
-    id="vone_Env_Nodes_Unsorted-v0",
-    entry_point="env.envs:VoneEnvNodesUnsorted",
-)
-
-register(
-    id="vone_Env_Routing_Separate-v0",
-    entry_point="env.envs:VoneEnvRoutingSeparate",
-)
-
-register(
-    id="vone_Env_Routing_Combined-v0",
-    entry_point="env.envs:VoneEnvRoutingCombined",
-)
-
-register(
-    id="vone_Env_Unsorted_Combined-v0",
-    entry_point="env.envs:VoneEnvUnsortedCombined",
-)
