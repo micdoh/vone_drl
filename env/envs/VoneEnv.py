@@ -12,7 +12,6 @@ from math import comb, floor
 from itertools import combinations, product, islice
 from pathlib import Path
 from collections import defaultdict
-from sympy.utilities.iterables import multiset_permutations
 from networktoolbox.NetworkToolkit.Topology import Topology
 from heuristics import select_nodes_nsc, select_path_fdl, select_path_ff
 from util_funcs import get_nth_item
