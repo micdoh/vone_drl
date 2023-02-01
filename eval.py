@@ -46,7 +46,7 @@ if __name__ == "__main__":
         env = [make_env(conf["env_name"], seed=load, **conf["env_args"])]
         env = (DummyVecEnv(env))
         agent_args = ("MultiInputPolicy", env)
-        agent_kwargs = dict(recurrent_masking=args.multistep_masking)
+        agent_kwargs = dict(multistep_masking=args.multistep_masking)
         model = (
             MaskablePPO(*agent_args, **agent_kwargs)
             if args.masking

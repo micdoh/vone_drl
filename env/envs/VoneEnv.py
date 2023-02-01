@@ -47,7 +47,28 @@ fail_messages = {
     "block_size": {"code": 8, "message": "Selected initial slot is of insufficient block size"},
 }
 
-class VoneEnvSeparate(gym.Env):
+
+class Service:
+    def __init__(
+        self,
+        arrival_time,
+        holding_time,
+        nodes=None,
+        nodes_capacity=None,
+        path=None,
+        links_BW=None,
+        links_IS=None,
+    ):
+        self.arrival_time = arrival_time
+        self.holding_time = holding_time
+        self.nodes = nodes
+        self.nodes_capacity = nodes_capacity
+        self.path = path
+        self.links_BW = links_BW
+        self.links_IS = links_IS
+
+
+class VoneEnv(gym.Env):
     def __init__(
         self,
         episode_length: int,
@@ -130,6 +151,11 @@ class VoneEnvSeparate(gym.Env):
         #  Recent GNN-DRL VONE paper does so
         self.define_observation_space()
 
+        # used to map node selection and k-path selections to link selections
+        self.generate_link_selection_table()
+        self.generate_vnet_cap_request_tables()
+        self.generate_vnet_bw_request_tables()
+
         self.define_action_space()
 
         # create initialized virtual network observation
@@ -165,16 +191,14 @@ class VoneEnvSeparate(gym.Env):
         )
 
     def define_action_space(self):
-        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
-        self.generate_vnet_cap_request_tables()
-        self.generate_vnet_bw_request_tables()
-
         # action space sizes are maximum corresponding table size for maximum request size
+        path_slot_action_space_dims = tuple([self.k_paths * self.num_selectable_slots]) * self.max_vnet_size
         self.action_space = gym.spaces.MultiDiscrete(
             (
                 len(self.generate_node_selection(self.max_vnet_size)),
-                self.k_paths**self.max_vnet_size,
-                self.num_selectable_slots ** self.max_vnet_size,
+                *path_slot_action_space_dims,
+                #self.k_paths**self.max_vnet_size,
+                #self.num_selectable_slots ** self.max_vnet_size,
             )
         )
 
@@ -327,6 +351,7 @@ class VoneEnvSeparate(gym.Env):
     def generate_path_selection(self, vnet_size):
         """Populate path_selection_dict with vnet_size: array pairs.
         Array elements indicate which kth path is taken between each virtual node.
+        Only used when path and slot selection are separate decisions.
         """
         # k-path selection is sequence of e.g. [0, 1, 2, 1] that indicates which kth path to take between nodes
         # Use Cartesian product of k-path selection because order matters
@@ -335,7 +360,9 @@ class VoneEnvSeparate(gym.Env):
 
     def generate_slot_selection(self, vnet_size):
         """Populate slot_selection_dict with vnet_size: array pairs.
-        Array rows are initial slot selection choices"""
+        Array rows are initial slot selection choices.
+        Only used when path and slot selection are separate decisions.
+        """
         return product(
             range(self.num_selectable_slots), repeat=vnet_size
         )
@@ -382,7 +409,26 @@ class VoneEnvSeparate(gym.Env):
         k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action[1:]]
         initial_slot_selected = [dim % self.num_selectable_slots for dim in action[1:]]
 
-        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
+        # Return empty dict at end for compatibility with other environments
+        return nodes_selected, k_path_selected, initial_slot_selected, {}
+
+    def select_nodes_paths_slots_separate(self, action):
+        """Get selected nodes, paths, and slots from action"""
+        request_size = self.current_VN_capacity.size
+        # Get node selection (dependent on number of nodes in request)
+        nodes_selected = get_nth_item(
+            self.generate_node_selection(request_size), action[0]
+        )
+
+        # k_paths selected from the action
+        k_path_selected = get_nth_item(
+            self.generate_path_selection(request_size), action[1]
+        )
+
+        # initial slot selected from the action
+        initial_slot_selected = get_nth_item(
+            self.generate_slot_selection(request_size), action[2]
+        )
 
         # Return empty dict at end for compatibility with other environments
         return nodes_selected, k_path_selected, initial_slot_selected, {}
@@ -415,14 +461,17 @@ class VoneEnvSeparate(gym.Env):
             fail_info,
         ) = self.select_nodes_paths_slots(action)
 
+        # Assign selections to environment attributes
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
+
         logger.debug(f" Nodes selected: {nodes_selected}")
         logger.debug(f" Paths selected: {k_path_selected}")
         logger.debug(f" Initial slots selected: {initial_slot_selected}")
 
-        # check substrate node capacity
+        # Check substrate node capacity
         cap = self.get_node_capacities(nodes_selected=nodes_selected)
 
-        # Don't sort nodes if using heuristic node selection
+        # Check selected node capacities are sufficient for request
         node_free = (cap >= self.current_VN_capacity).all()
 
         # make sure different path slots are used & check substrate link BW
@@ -542,9 +591,9 @@ class VoneEnvSeparate(gym.Env):
     def vnet_size_distribution(self, dist_name):
         """Set the probability distribution function used to generate the request sizes"""
         if dist_name == "fixed":
-            return True#lambda: self.min_vnet_size
+            return self.min_vnet_size
         elif dist_name == "random":
-            return lambda: self.rng.randint(*(self.min_vnet_size, self.max_vnet_size))
+            return self.rng.randint(*(self.min_vnet_size, self.max_vnet_size))
         # TODO - Investigate other possible distributions e.g. realistic traffic
         else:
             raise Exception(
@@ -826,8 +875,6 @@ class VoneEnvNodes(VoneEnv):
             self, nodes_selected
         )
 
-        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
-
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
     def action_masks(self):
@@ -842,7 +889,11 @@ class VoneEnvPaths(VoneEnv):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.define_action_space()
+        action_space_dims = tuple([self.k_paths*self.num_selectable_slots]) * self.max_vnet_size
+        # action space sizes are maximum corresponding table size for maximum request size
+        self.action_space = gym.spaces.MultiDiscrete(
+            action_space_dims
+        )
 
     def define_observation_space(self):
         self.obs_request = gym.spaces.MultiDiscrete(
@@ -874,18 +925,6 @@ class VoneEnvPaths(VoneEnv):
             }
         )
 
-    def define_action_space(self):
-        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
-        self.generate_vnet_cap_request_tables()
-        self.generate_vnet_bw_request_tables()
-
-        action_space_dims = tuple([self.k_paths*self.num_selectable_slots]) * self.max_vnet_size
-
-        # action space sizes are maximum corresponding table size for maximum request size
-        self.action_space = gym.spaces.MultiDiscrete(
-            action_space_dims
-        )
-
     def observation(self):
         # Find row in node request table that matches observation
         node_request_table = self.vnet_cap_request_dict[self.current_VN_capacity.size]
@@ -915,14 +954,11 @@ class VoneEnvPaths(VoneEnv):
 
     def select_nodes_paths_slots(self, action):
         """Get selected nodes, paths, and slots from action."""
-
         # Get node selection (dependent on number of nodes in request)
         nodes_selected = self.current_observation["selected_nodes"]
 
         k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action]
         initial_slot_selected = [dim % self.num_selectable_slots for dim in action]
-
-        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
 
         return nodes_selected, k_path_selected, initial_slot_selected, {}
 
@@ -931,23 +967,3 @@ class VoneEnvPaths(VoneEnv):
         path_mask = self.mask_paths(request_size, self.current_observation["selected_nodes"])
         self.path_mask = path_mask
         return path_mask
-
-
-class Service:
-    def __init__(
-        self,
-        arrival_time,
-        holding_time,
-        nodes=None,
-        nodes_capacity=None,
-        path=None,
-        links_BW=None,
-        links_IS=None,
-    ):
-        self.arrival_time = arrival_time
-        self.holding_time = holding_time
-        self.nodes = nodes
-        self.nodes_capacity = nodes_capacity
-        self.path = path
-        self.links_BW = links_BW
-        self.links_IS = links_IS
