@@ -14,10 +14,9 @@ def parse_args():
         "-f", "--env_file", type=str, help="Absolute path to config file for run"
     )
     parser.add_argument(
-        "-t",
-        "--test",
+        "--no_wandb",
         action="store_true",
-        help="Disable additional features e.g. weights and biases logging",
+        help="Disable weights and biases logging",
     )
     parser.add_argument(
         "--learning_rate",
@@ -78,7 +77,7 @@ def parse_args():
     parser.add_argument(
         "--action_interpreter",
         default="select_nodes_paths_slots",
-        help="Specify function that inteprets actions in the env. To be used in multistep action masking.",
+        help="Specify function that interprets actions in the env. To be used in multistep action masking.",
     )
     parser.add_argument(
         "--eval_masking", action="store_true", help="Eval: Use invalid action masking for evaluation"

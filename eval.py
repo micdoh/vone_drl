@@ -18,14 +18,14 @@ import env.envs.VoneEnv as VoneEnv
 if __name__ == "__main__":
 
     args = parse_args()
-    conf = yaml.safe_load(Path(args.file).read_text())
+    conf = yaml.safe_load(Path(args.env_file).read_text())
 
     (
         log_dir,
         log_file,
         logger,
         model_save_file
-    ) = define_logs(args.eval_id, conf, args.log)
+    ) = define_logs(args.eval_id, args.log_dir, args.log)
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 

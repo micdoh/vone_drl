@@ -1,6 +1,6 @@
     project: VONE-DRL
     name: "Agent Nodes FDL Masking"
-    program: main.py
+    program: train.py
     method: bayes
     metric:
       name: mean_reward
