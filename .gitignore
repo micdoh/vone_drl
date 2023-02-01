@@ -14,4 +14,4 @@ wandb/
 models/
 figures/
 /config/archive/
-/sb3-contrib/
+/sb3-contrib/*
