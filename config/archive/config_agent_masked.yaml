@@ -20,4 +20,4 @@ env_args:
     vnet_size_dist: fixed
 wandb_config:
     policy_type: MultiInputPolicy
-    total_timesteps: 270000
+    total_timesteps: 50000
