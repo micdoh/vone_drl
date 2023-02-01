@@ -42,11 +42,11 @@ It's recommended to download the pre-trained models in order to avoid any diffic
 #### 1. (Optional) To train from scratch, run the following commands:
 
 ```commandline
-poetry run python train.py --env_file ./config/agent_combined.yaml --log WARN --masking --recurrent_masking --gamma=0.5499732330963527 --learning_rate=0.001048322384752267 --n_steps=46 --output_file ./data/agent_nodes_train.csv --save_model --log_dir ./models --no_wandb --id combined --masking
+poetry run python train.py --env_file ./config/agent_combined.yaml --log WARN --masking --multistep_masking --gamma=0.5499732330963527 --learning_rate=0.001048322384752267 --n_steps=46 --output_file ./data/agent_combined_train.csv --save_model --log_dir ./models --no_wandb --id combined
 
-poetry run python train.py --env_file ./config/agent_nodes.yaml --log WARN --masking --gamma=0.5664841514329136 --learning_rate=0.001309728909201273 --n_steps=63 --output_file ./data/agent_paths_train.csv --save_model --log_dir ./models --no_wandb --id nodes --masking
+poetry run python train.py --env_file ./config/agent_nodes.yaml --log WARN --masking --gamma=0.5664841514329136 --learning_rate=0.001309728909201273 --n_steps=63 --output_file ./data/agent_nodes_train.csv --save_model --log_dir ./models --no_wandb --id nodes
 
-poetry run python train.py --env_file ./config/agent_paths.yaml --log WARN --masking --gamma=0.6344458270083639 --learning_rate=0.00031675064580752364 --n_steps=60 --output_file ./data/agent_combined_train.csv --save_model --log_dir ./models --no_wandb --id paths --masking --multistep_masking
+poetry run python train.py --env_file ./config/agent_paths.yaml --log WARN --masking --gamma=0.6344458270083639 --learning_rate=0.00031675064580752364 --n_steps=60 --output_file ./data/agent_paths_train.csv --save_model --log_dir ./models --no_wandb --id paths
 ```
 
 #### 2. To evaluate models, run the following commands:
@@ -55,21 +55,21 @@ poetry run python train.py --env_file ./config/agent_paths.yaml --log WARN --mas
 
 ```commandline
 
-poetry run python eval.py --env_file ./config/agent_combined.yaml --log WARN --model_file ./models/combined/combined_model.zip --output_file ./eval/agent_combined.csv --eval_masking --multistep_masking
+poetry run python eval.py --env_file ./config/agent_combined.yaml --log WARN --model_file ./models/combined/combined_model.zip --output_file ./eval/agent_combined.csv --eval_masking --multistep_masking --id combined
 
-poetry run python eval.py --env_file ./config/agent_nodes.yaml --log WARN --model_file ./models/nodes/nodes_model.zip --output_file ./eval/agent_nodes.csv --eval_masking
+poetry run python eval.py --env_file ./config/agent_nodes.yaml --log WARN --model_file ./models/nodes/nodes_model.zip --output_file ./eval/agent_nodes.csv --eval_masking --id nodes
 
-poetry run python eval.py --env_file ./config/agent_paths.yaml --log WARN --model_file ./models/paths/paths_model.zip --output_file ./eval/agent_paths.csv --eval_masking
+poetry run python eval.py --env_file ./config/agent_paths.yaml --log WARN --model_file ./models/paths/paths_model.zip --output_file ./eval/agent_paths.csv --eval_masking --id paths
 ```
 
 *To evaluate pre-trained model:*
 ```commandline
 
-poetry run python eval.py --env_file ./config/agent_combined.yaml --log WARN --output_file ./eval/agent_combined.csv --masking --artifact micdoh/VONE-DRL/agent_combined:v0
+poetry run python eval.py --env_file ./config/agent_combined.yaml --log WARN --output_file ./eval/agent_combined.csv --masking --eval_masking --multistep_masking --artifact micdoh/VONE-DRL/4ampum3d_model:v0 --id combined
 
-poetry run python eval.py --env_file ./config/agent_nodes.yaml --log WARN --output_file ./eval/agent_nodes.csv --masking --artifact micdoh/VONE-DRL/agent_nodes:v0
+poetry run python eval.py --env_file ./config/agent_nodes.yaml --log WARN --output_file ./eval/agent_nodes.csv --masking --eval_masking --artifact micdoh/VONE-DRL/agent_nodes:v0 --id nodes
 
-poetry run python eval.py --env_file ./config/agent_paths.yaml --log WARN --output_file ./eval/agent_paths.csv --masking --artifact micdoh/VONE-DRL/agent_paths:v0
+poetry run python eval.py --env_file ./config/agent_paths.yaml --log WARN --output_file ./eval/agent_paths.csv --masking --eval_masking --artifact micdoh/VONE-DRL/agent_routes:v0 --id paths
 ```
 
 *To generate heuristic evaluation data:*

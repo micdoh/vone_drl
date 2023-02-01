@@ -305,6 +305,7 @@ class VoneEnv(gym.Env):
         """Return the mask of permitted path actions."""
         masks = []
 
+        # Return all ones if no nodes selected (all actions permitted)
         if nodes_selected is None:
             return np.array([1]*self.k_paths*self.num_selectable_slots*vnet_size)
 
@@ -409,6 +410,9 @@ class VoneEnv(gym.Env):
         k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action[1:]]
         initial_slot_selected = [dim % self.num_selectable_slots for dim in action[1:]]
 
+        # Assign selections to environment attributes
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
+
         # Return empty dict at end for compatibility with other environments
         return nodes_selected, k_path_selected, initial_slot_selected, {}
 
@@ -429,6 +433,9 @@ class VoneEnv(gym.Env):
         initial_slot_selected = get_nth_item(
             self.generate_slot_selection(request_size), action[2]
         )
+
+        # Assign selections to environment attributes
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
 
         # Return empty dict at end for compatibility with other environments
         return nodes_selected, k_path_selected, initial_slot_selected, {}
@@ -460,9 +467,6 @@ class VoneEnv(gym.Env):
             initial_slot_selected,
             fail_info,
         ) = self.select_nodes_paths_slots(action)
-
-        # Assign selections to environment attributes
-        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
 
         logger.debug(f" Nodes selected: {nodes_selected}")
         logger.debug(f" Paths selected: {k_path_selected}")
@@ -875,6 +879,9 @@ class VoneEnvNodes(VoneEnv):
             self, nodes_selected
         )
 
+        # Assign selections to environment attributes
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
+
         return nodes_selected, k_path_selected, initial_slot_selected, fail_info
 
     def action_masks(self):
@@ -959,6 +966,9 @@ class VoneEnvPaths(VoneEnv):
 
         k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action]
         initial_slot_selected = [dim % self.num_selectable_slots for dim in action]
+
+        # Assign selections to environment attributes
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
 
         return nodes_selected, k_path_selected, initial_slot_selected, {}
 
