@@ -25,7 +25,7 @@ if __name__ == "__main__":
         log_file,
         logger,
         model_save_file
-    ) = define_logs(args.eval_id, args.log_dir, args.log)
+    ) = define_logs(args.id, args.log_dir, args.log)
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
@@ -36,6 +36,7 @@ if __name__ == "__main__":
         api = wandb.Api()
         artifact = api.artifact(args.artifact)
         model_file = artifact.download(root=Path(args.output_file).parent) / f"{artifact.name.split(':')[0]}.zip"
+        print(model_file.resolve())
     else:
         model_file = args.model_file
 
@@ -46,7 +47,10 @@ if __name__ == "__main__":
         env = [make_env(conf["env_name"], seed=load, **conf["env_args"])]
         env = (DummyVecEnv(env))
         agent_args = ("MultiInputPolicy", env)
-        agent_kwargs = dict(recurrent_masking=args.multistep_masking)
+        agent_kwargs = dict(multistep_masking=args.multistep_masking,
+                            multistep_masking_terms=[args.multistep_masking_terms],
+                            action_interpreter=args.action_interpreter,
+                            )
         model = (
             MaskablePPO(*agent_args, **agent_kwargs)
             if args.masking

@@ -3,6 +3,7 @@ tmp/
 __pycache__
 __pycache__/
 networktoolbox/
+sb3-contrib/
 runs/
 topologies/
 .vscode/
@@ -13,3 +14,4 @@ wandb/
 models/
 figures/
 /config/archive/
+/sb3-contrib/*

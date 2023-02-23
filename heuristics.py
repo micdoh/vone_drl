@@ -137,7 +137,7 @@ def rank_vnet_node_requirements(node_request) -> [(int, int, int)]:
     return rank_n_v
 
 
-def select_nodes_nsc(env: gym.Env, topology: Graph, sort: bool = True) -> ([int], dict):
+def select_nodes_nsc(env: gym.Env, topology: Graph) -> ([int], dict):
     """Return best node choice based on node switching capacity.
 
     Args:
@@ -169,9 +169,7 @@ def select_nodes_nsc(env: gym.Env, topology: Graph, sort: bool = True) -> ([int]
     # Check for success and clean-up the action
     if successful_nodes == request_size:
         fail_info = {}
-        # Sort so nodes appear in same order as in node selection table row
-        if sort:
-            selected_nodes.sort()
+
     # Sometimes node without sufficient capacity is assigned (even tho one exists)
     # because NSC is calculated based on link capacity * node capacity.
     # So, to make sure there are no duplicate zeroes, we add this step.
@@ -363,11 +361,12 @@ def select_path_ff(env: gym.Env, nodes_selected: [int]):
     return k_paths_selected, initial_slots_selected, fail_info
 
 
-def nsc_ksp_fdl(the_env: gym.Env, sort: bool = False):
+def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
     """
 
     Args:
         the_env: Gym environment.
+        combined: whether to use combined path-slot selection or separate
 
     Returns:
 
@@ -386,9 +385,7 @@ def nsc_ksp_fdl(the_env: gym.Env, sort: bool = False):
         request_size = the_env.current_VN_capacity.size
 
         # Get node mapping by ranking according to Node Switching Capacity
-        action_node, fail_info = select_nodes_nsc(
-            the_env, topology, sort=sort,
-        )
+        action_node, fail_info = select_nodes_nsc(the_env, topology)
 
         # Get the requested bandwidth between nodes
         vnet_bandwidth = the_env.current_VN_bandwidth
@@ -399,27 +396,37 @@ def nsc_ksp_fdl(the_env: gym.Env, sort: bool = False):
                 the_env, topology, vnet_bandwidth, action_node
             )
 
+            # The environment requires actions to be presented in the same
+            # integer format as the agent uses.
+            # Store those integers here
+            action_ints = []
+
             # Find row in node selection table that matches desired action
             node_selection_gen = the_env.generate_node_selection(request_size)
-            action_node_int = get_gen_index(node_selection_gen, action_node)
+            action_ints.append(get_gen_index(node_selection_gen, action_node))
 
-            # Find row in path selection table that matches desired action
-            path_selection_gen = the_env.generate_path_selection(request_size)
-            action_k_path_int = get_gen_index(path_selection_gen, action_k_path)
+            # If using combined path-slot selection
+            if combined:
 
-            # Find row in slot selection table that matches desired action
-            slot_selection_gen = the_env.generate_slot_selection(request_size)
-            action_initial_slots_int = get_gen_index(
-                slot_selection_gen, action_initial_slots
-            )
+                for i in range(request_size):
+                    action_ints.append(action_k_path[i]*the_env.num_selectable_slots + action_initial_slots[i])
+
+            else:
+                # Find row in path selection table that matches desired action
+                path_selection_gen = the_env.generate_path_selection(request_size)
+                action_ints.append(get_gen_index(path_selection_gen, action_k_path))
+
+                # Find row in slot selection table that matches desired action
+                slot_selection_gen = the_env.generate_slot_selection(request_size)
+                action_ints.append(get_gen_index(slot_selection_gen, action_initial_slots))
 
         else:
 
             # TODO - Should make index 0 of action a fail? Or just return a False here and check later?
-            action_node_int = action_k_path_int = action_initial_slots_int = 0
+            action_ints = [0] + [0] * request_size if combined else [0, 0, 0]
 
         observation, reward, done, info = the_env.step(
-            [action_node_int, action_k_path_int, action_initial_slots_int]
+            action_ints
         )
         topology_0, _ = the_env.render()
         topology = deepcopy(topology_0)
