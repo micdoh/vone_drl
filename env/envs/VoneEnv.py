@@ -10,7 +10,6 @@ import wandb
 import stable_baselines3.common
 from math import comb, floor
 from itertools import combinations, product, islice
-from service import Service
 from pathlib import Path
 from collections import defaultdict
 from sympy.utilities.iterables import multiset_permutations
@@ -48,7 +47,28 @@ fail_messages = {
     "block_size": {"code": 8, "message": "Selected initial slot is of insufficient block size"},
 }
 
-class VoneEnvSortedSeparate(gym.Env):
+
+class Service:
+    def __init__(
+        self,
+        arrival_time,
+        holding_time,
+        nodes=None,
+        nodes_capacity=None,
+        path=None,
+        links_BW=None,
+        links_IS=None,
+    ):
+        self.arrival_time = arrival_time
+        self.holding_time = holding_time
+        self.nodes = nodes
+        self.nodes_capacity = nodes_capacity
+        self.path = path
+        self.links_BW = links_BW
+        self.links_IS = links_IS
+
+
+class VoneEnv(gym.Env):
     def __init__(
         self,
         episode_length: int,
@@ -70,7 +90,6 @@ class VoneEnvSortedSeparate(gym.Env):
         wandb_log: bool = False,
         routing_choose_k_paths: bool = False,
         ksp_fdl: bool = True,
-        sort_nodes: bool = True,
     ):
         self.current_time = 0
         self.allocated_Service = []
@@ -102,7 +121,6 @@ class VoneEnvSortedSeparate(gym.Env):
         self.results = {}
         self.routing_choose_k_paths = routing_choose_k_paths
         self.ksp_fdl = ksp_fdl
-        self.sort_nodes = sort_nodes
         self.num_selectable_slots = self.num_slots - self.min_slot_request + 1
         self.nodes_selected = None
         self.k_paths_selected = None
@@ -173,11 +191,9 @@ class VoneEnvSortedSeparate(gym.Env):
         self.generate_vnet_bw_request_tables()
 
         # action space sizes are maximum corresponding table size for maximum request size
-        # TODO - IDEA: Action space to become node-pair k-path choice (i.e. concurrent action space), such that it can be masked.
-        #  This leads to comb(comb(self.num_nodes, 2), self.max_vnet_size) * k total actions for node-path selection
         self.action_space = gym.spaces.MultiDiscrete(
             (
-                comb(self.num_nodes, self.max_vnet_size),
+                len(self.generate_node_selection(self.max_vnet_size)),
                 self.k_paths**self.max_vnet_size,
                 self.num_selectable_slots ** self.max_vnet_size,
             )
@@ -255,44 +271,80 @@ class VoneEnvSortedSeparate(gym.Env):
     def generate_node_selection(self, vnet_size):
         """Populate node_selection_dict with vnet_size: array pairs.
         Array elements indicate node selections, indexed by action space action number"""
-        # node selection is sequence e.g. [1, 13, 7] that indicates which nodes will comprise virtual network
-        # use combinations as node ordering does not matter
-        # dict keyed by vnet size as different node selection table for each vnet size
-        return combinations([x for x in range(self.num_nodes)], vnet_size)
+        # node selection is row in array e.g. [1, 13, 7] that indicates which nodes will comprise virtual network
+        df = np.array(list(product(range(self.num_nodes), repeat=vnet_size)))
+        # Get duplicate node row indices and delete rows
+        a = (df[:, 0] == df[:, 1]) | (df[:, 1] == df[:, 2]) | (df[:, 0] == df[:, 2])
+        return np.delete(df, np.where(a), axis=0)
 
-    def mask_nodes(self, vnet_size, node_capacities):
-        """Return the mask of permitted node actions.
-        Check each virtual node requirement in turn,
-        find capable nodes,
-        get combination of suitable nodes that fit."""
-        overall_cap_check = []
+    def mask_nodes(self, node_capacities):
+        """Return the mask of permitted node actions."""
 
-        # Check if node can meet v-node requests
-        for req_cap in self.current_VN_capacity:
-            cap_check = []
-            for i, cap in enumerate(node_capacities):
-                cap_check.append((0 if cap - req_cap < 0 else 1))
-            overall_cap_check.append(cap_check)
+        node_capacities = dict(enumerate(node_capacities))
 
-        df_cap_check = pd.concat(
-            [pd.Series(x) for x in overall_cap_check], axis="columns"
+        node_selection_table = self.generate_node_selection(self.current_VN_capacity.size)
+
+        node_cap_table = np.vectorize(
+            node_capacities.get
+        )(
+            node_selection_table
         )
-        # count of how many v-nodes a node can satisfy
-        df_check_count = df_cap_check.sum(axis="columns")
-        # get substrate node combinations and their count of how many v-nodes they can satisfy
-        df_check_combinations = pd.DataFrame(
-            list(combinations(df_check_count, vnet_size))
-        )
-        # multiply the total v-nodes that can be satisfied by substrate node combo
-        df_check_product = df_check_combinations.prod(axis=1)
-        # If product of checks greater than threshold, action is valid
-        threshold = vnet_size ** (vnet_size - 1)
-        valid_actions = df_check_product.map(lambda x: 1 if x >= threshold else 0)
-        return valid_actions
+
+        # Set elements to True if node capacity is sufficient
+        node_mask = np.greater_equal(node_cap_table, self.current_VN_capacity)
+
+        # Set row to True if all elements True
+        node_mask = np.all(node_mask, axis=1)
+
+        # Convert to 1s and 0s
+        return 1*node_mask
 
     def mask_paths(self, vnet_size, nodes_selected):
-        path_table = list(product(range(self.k_paths), repeat=vnet_size))
-        return True
+        """Return the mask of permitted path actions."""
+        masks = []
+
+        if nodes_selected is None:
+            return np.array([1]*self.k_paths*self.num_selectable_slots*vnet_size)
+
+        # Get all paths between node pairs
+        for k in range(self.k_paths):
+            mask = []
+            k_paths_selected = [k] * vnet_size
+            paths = self.get_links_from_selection(nodes_selected, k_paths_selected)
+
+            # Get all slots on each path
+            for i, path in enumerate(paths):
+                slots = self.get_path_slots(path)
+                # Set to zero the self.current_VN_bandwidth[i]-1 slots before any zero
+                zero_indices = np.asarray(slots == 0).nonzero()[0]
+                for i_zero in zero_indices:
+                    slots[
+                    # max to avoid negative index
+                    max(0, i_zero-self.current_VN_bandwidth[i]+1): i_zero] = 0
+                # Set to zero the final block of size (bw-1)
+                slots = slots[: self.num_slots - self.current_VN_bandwidth[i] + 1]
+                slots = np.pad(slots, (0, self.current_VN_bandwidth[i]), "constant", constant_values=0)[
+                        : self.num_selectable_slots]
+                mask.append(slots)
+
+            masks.append(np.stack(mask, axis=1))
+
+        total_mask_2d = np.concatenate(masks, axis=0)
+        df = pd.DataFrame(total_mask_2d)
+        total_mask_1d = np.concatenate([df[n] for n in range(vnet_size)], axis=0).astype(int)
+
+        return total_mask_1d
+
+    def action_masks(self):
+        request_size = self.current_VN_capacity.size
+        node_capacities = self.current_observation["node_capacities"]
+        if self.nodes_selected is None:
+            node_mask = self.mask_nodes(node_capacities)
+            self.node_mask = node_mask
+        else:
+            node_mask = self.node_mask
+        path_mask = self.mask_paths(request_size, self.nodes_selected)
+        return np.concatenate([node_mask, path_mask], axis=0).astype(int)
 
     def generate_path_selection(self, vnet_size):
         """Populate path_selection_dict with vnet_size: array pairs.
@@ -349,16 +401,8 @@ class VoneEnvSortedSeparate(gym.Env):
         nodes_selected = get_nth_item(
             self.generate_node_selection(request_size), action[0]
         )
-
-        # k_paths selected from the action
-        k_path_selected = get_nth_item(
-            self.generate_path_selection(request_size), action[1]
-        )
-
-        # initial slot selected from the action
-        initial_slot_selected = get_nth_item(
-            self.generate_slot_selection(request_size), action[2]
-        )
+        k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action[1:]]
+        initial_slot_selected = [dim % self.num_selectable_slots for dim in action[1:]]
 
         self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
 
@@ -400,22 +444,8 @@ class VoneEnvSortedSeparate(gym.Env):
         # check substrate node capacity
         cap = self.get_node_capacities(nodes_selected=nodes_selected)
 
-        # rearrange request node-ordering until satisfied that nodes can/cannot satisfy request
-        if self.sort_nodes:
-
-            requests = list(zip(self.current_VN_capacity, self.current_VN_bandwidth))
-            for n, req in enumerate(multiset_permutations(requests)):
-                node_req = [item[0] for item in req]
-                bw_req = [item[1] for item in req]
-                node_free = (cap >= node_req).all()
-                if node_free:
-                    self.current_VN_capacity = np.array(node_req)
-                    self.current_VN_bandwidth = np.array(bw_req)
-                    break
-
-        else:
-            # Don't sort nodes if using heuristic node selection
-            node_free = (cap >= self.current_VN_capacity).all()
+        # Don't sort nodes if using heuristic node selection
+        node_free = (cap >= self.current_VN_capacity).all()
 
         # make sure different path slots are used & check substrate link BW
         self.num_path_accepted = 0
@@ -787,191 +817,13 @@ class VoneEnvSortedSeparate(gym.Env):
         logger.info(f"No. of services: {len(self.allocated_Service)}")
 
 
-class VoneEnvUnsortedSeparate(VoneEnvSortedSeparate):
+class VoneEnvNodes(VoneEnv):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.sort_nodes = False
-        self.action_space = gym.spaces.MultiDiscrete(
-            (
-                len(self.generate_node_selection(3)),
-                self.k_paths**self.max_vnet_size,
-                self.num_selectable_slots ** self.max_vnet_size,
-            )
-        )
-
-    def generate_node_selection(self, vnet_size):
-        """Populate node_selection_dict with vnet_size: array pairs.
-        Array elements indicate node selections, indexed by action space action number"""
-        df = np.array(list(product(range(self.num_nodes), repeat=vnet_size)))
-        # Get duplicate node row indices and delete rows
-        a = (df[:, 0] == df[:, 1]) | (df[:, 1] == df[:, 2]) | (df[:, 0] == df[:, 2])
-        return np.delete(df, np.where(a), axis=0)
-
-    def mask_nodes(self, vnet_size, node_capacities):
-        """Return the mask of permitted node actions."""
-
-        node_capacities = dict(enumerate(node_capacities))
-
-        node_selection_table = self.generate_node_selection(self.current_VN_capacity.size)
-
-        node_cap_table = np.vectorize(
-            node_capacities.get
-        )(
-            node_selection_table
-        )
-
-        # Set elements to True if node capacity is sufficient
-        node_mask = np.greater_equal(node_cap_table, self.current_VN_capacity)
-
-        # Set row to True if all elements True
-        node_mask = np.all(node_mask, axis=1)
-
-        return 1*node_mask
-
-
-class VoneEnvUnsortedCombined(VoneEnvUnsortedSeparate):
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.define_action_space()
-
-    def define_action_space(self):
-        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
-        self.generate_vnet_cap_request_tables()
-        self.generate_vnet_bw_request_tables()
-
-        route_action_space_dims = tuple([self.k_paths*self.num_selectable_slots]) * self.max_vnet_size
-
-        # action space sizes are maximum corresponding table size for maximum request size
-        self.action_space = gym.spaces.MultiDiscrete(
-            (
-                len(self.generate_node_selection(3)),
-                *route_action_space_dims,
-            )
-        )
-
-    def select_nodes_paths_slots(self, action):
-        """Get selected nodes, paths, and slots from action"""
-        request_size = self.current_VN_capacity.size
-        # Get node selection (dependent on number of nodes in request)
-        nodes_selected = get_nth_item(
-            self.generate_node_selection(request_size), action[0]
-        )
-        k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action[1:]]
-        initial_slot_selected = [dim % self.num_selectable_slots for dim in action[1:]]
-
-        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
-
-        # Return empty dict at end for compatibility with other environments
-        return nodes_selected, k_path_selected, initial_slot_selected, {}
-
-    def mask_paths(self, vnet_size, nodes_selected):
-        """Return the mask of permitted path actions."""
-        masks = []
-
-        if nodes_selected is None:
-            return np.array([1]*self.k_paths*self.num_selectable_slots*vnet_size)
-
-        # Get all paths between node pairs
-        for k in range(self.k_paths):
-            mask = []
-            k_paths_selected = [k] * vnet_size
-            paths = self.get_links_from_selection(nodes_selected, k_paths_selected)
-
-            # Get all slots on each path
-            for i, path in enumerate(paths):
-                slots = self.get_path_slots(path)
-                # Set to zero the self.current_VN_bandwidth[i]-1 slots before any zero
-                zero_indices = np.asarray(slots == 0).nonzero()[0]
-                for i_zero in zero_indices:
-                    slots[
-                    # max to avoid negative index
-                    max(0, i_zero-self.current_VN_bandwidth[i]+1)
-                    : i_zero] = 0
-                # Set to zero the final block of size (bw-1)
-                slots = slots[: self.num_slots - self.current_VN_bandwidth[i] + 1]
-                slots = np.pad(slots, (0, self.current_VN_bandwidth[i]), "constant", constant_values=0)[
-                        : self.num_selectable_slots]
-                mask.append(slots)
-
-            masks.append(np.stack(mask, axis=1))
-
-        total_mask_2d = np.concatenate(masks, axis=0)
-        df = pd.DataFrame(total_mask_2d)
-        total_mask_1d = np.concatenate([df[n] for n in range(vnet_size)], axis=0).astype(int)
-
-        return total_mask_1d
-
-    def action_masks(self):
-        request_size = self.current_VN_capacity.size
-        node_capacities = self.current_observation["node_capacities"]
-        if self.nodes_selected is None:
-            node_mask = self.mask_nodes(request_size, node_capacities)
-            self.node_mask = node_mask
-        else:
-            node_mask = self.node_mask
-        path_mask = self.mask_paths(request_size, self.nodes_selected)
-        return np.concatenate([node_mask, path_mask], axis=0).astype(int)
-
-
-class VoneEnvNodesSorted(VoneEnvSortedSeparate):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def define_action_space(self):
-        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
-        self.generate_vnet_cap_request_tables()
-        self.generate_vnet_bw_request_tables()
-
         # action space sizes are maximum corresponding table size for maximum request size
         self.action_space = gym.spaces.Discrete(
-            comb(self.num_nodes, self.max_vnet_size),
-        )
-
-    def select_nodes_paths_slots(self, action):
-        """Get selected nodes, paths, and slots from action.
-        KSP-FDL or FF"""
-        request_size = self.current_VN_capacity.size
-
-        # Get node selection (dependent on number of nodes in request)
-        nodes_selected = get_nth_item(
-            self.generate_node_selection(request_size), action
-        )
-
-        (
-            k_path_selected,
-            initial_slot_selected,
-            fail_info
-        ) = select_path_fdl(
-            self,
-            self.topology.topology_graph,
-            self.current_VN_bandwidth,
-            nodes_selected,
-        ) if self.ksp_fdl else select_path_ff(
-            self, nodes_selected
-        )
-
-        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
-
-        return nodes_selected, k_path_selected, initial_slot_selected, fail_info
-
-    def action_masks(self):
-        request_size = self.current_VN_capacity.size
-        node_capacities = self.current_observation["node_capacities"]
-        node_mask = self.mask_nodes(request_size, node_capacities)
-        self.node_mask = node_mask
-        return node_mask
-
-
-class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.sort_nodes = False
-        # action space sizes are maximum corresponding table size for maximum request size
-        self.action_space = gym.spaces.Discrete(
-           len(self.generate_node_selection(3))
+           len(self.generate_node_selection(self.max_vnet_size))
         )
 
     def select_nodes_paths_slots(self, action):
@@ -1003,14 +855,12 @@ class VoneEnvNodesUnsorted(VoneEnvUnsortedSeparate):
     def action_masks(self):
         request_size = self.current_VN_capacity.size
         node_capacities = self.current_observation["node_capacities"]
-        node_mask = self.mask_nodes(request_size, node_capacities)
+        node_mask = self.mask_nodes(node_capacities)
         self.node_mask = node_mask
         return node_mask
 
 
-class VoneEnvRoutingSeparate(VoneEnvUnsortedSeparate):
-    """Observation space is augmented to include selected nodes instead of node capacities.
-    Nodes are selected by NSC ranking method."""
+class VoneEnvPaths(VoneEnv):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -1051,18 +901,12 @@ class VoneEnvRoutingSeparate(VoneEnvUnsortedSeparate):
         self.generate_vnet_cap_request_tables()
         self.generate_vnet_bw_request_tables()
 
+        action_space_dims = tuple([self.k_paths*self.num_selectable_slots]) * self.max_vnet_size
+
         # action space sizes are maximum corresponding table size for maximum request size
-        if self.routing_choose_k_paths:
-            self.action_space = gym.spaces.Discrete(
-                self.k_paths**self.max_vnet_size,
-            )
-        else:
-            self.action_space = gym.spaces.MultiDiscrete(
-                (
-                    self.k_paths**self.max_vnet_size,
-                    self.num_selectable_slots ** self.max_vnet_size,
-                )
-            )
+        self.action_space = gym.spaces.MultiDiscrete(
+            action_space_dims
+        )
 
     def observation(self):
         # Find row in node request table that matches observation
@@ -1093,69 +937,6 @@ class VoneEnvRoutingSeparate(VoneEnvUnsortedSeparate):
 
     def select_nodes_paths_slots(self, action):
         """Get selected nodes, paths, and slots from action."""
-        request_size = self.current_VN_capacity.size
-        # Get node selection (dependent on number of nodes in request)
-        nodes_selected = self.current_observation["selected_nodes"]
-
-        if self.routing_choose_k_paths:
-
-            k_path_selected = get_nth_item(
-                self.generate_path_selection(request_size), action
-            )
-
-            (
-                _,
-                initial_slot_selected,
-                fail_info,
-            ) = select_path_fdl(
-                self,
-                self.topology.topology_graph,
-                self.current_VN_bandwidth,
-                nodes_selected,
-                k_paths_preselected=k_path_selected,
-            ) if self.ksp_fdl else select_path_ff(
-                self, nodes_selected
-            )
-
-        else:
-            fail_info = {}
-            k_path_selected = get_nth_item(
-                self.generate_path_selection(request_size), action[0]
-            )
-            initial_slot_selected = get_nth_item(
-                self.generate_slot_selection(request_size), action[1]
-            )
-
-        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
-
-        return nodes_selected, k_path_selected, initial_slot_selected, fail_info
-
-    def action_masks(self):
-        request_size = self.current_VN_capacity.size
-        path_mask = self.mask_paths(request_size, self.current_observation["selected_nodes"])
-        self.path_mask = path_mask
-        return path_mask
-
-
-class VoneEnvRoutingCombined(VoneEnvRoutingSeparate):
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def define_action_space(self):
-        self.generate_link_selection_table()  # Used to map node selection and k-path selections to link selections
-        self.generate_vnet_cap_request_tables()
-        self.generate_vnet_bw_request_tables()
-
-        action_space_dims = tuple([self.k_paths*self.num_selectable_slots]) * self.max_vnet_size
-
-        # action space sizes are maximum corresponding table size for maximum request size
-        self.action_space = gym.spaces.MultiDiscrete(
-            action_space_dims
-        )
-
-    def select_nodes_paths_slots(self, action):
-        """Get selected nodes, paths, and slots from action."""
 
         # Get node selection (dependent on number of nodes in request)
         nodes_selected = self.current_observation["selected_nodes"]
@@ -1167,37 +948,8 @@ class VoneEnvRoutingCombined(VoneEnvRoutingSeparate):
 
         return nodes_selected, k_path_selected, initial_slot_selected, {}
 
-    def mask_paths(self, vnet_size, nodes_selected):
-        """Return the mask of permitted path actions."""
-        masks = []
-        nodes_selected = self.current_observation["selected_nodes"]
-
-        # Get all paths between node pairs
-        for k in range(self.k_paths):
-            mask = []
-            k_paths_selected = [k] * vnet_size
-            paths = self.get_links_from_selection(nodes_selected, k_paths_selected)
-
-            # Get all slots on each path
-            for i, path in enumerate(paths):
-                slots = self.get_path_slots(path)
-                # Set to zero the self.current_VN_bandwidth[i]-1 slots before any zero
-                zero_indices = np.asarray(slots == 0).nonzero()[0]
-                for i_zero in zero_indices:
-                    slots[
-                    # max to avoid negative index
-                    max(0, i_zero-self.current_VN_bandwidth[i]+1)
-                    : i_zero] = 0
-                # Set to zero the final block of size (bw-1)
-                slots = slots[: self.num_slots - self.current_VN_bandwidth[i] + 1]
-                slots = np.pad(slots, (0, self.current_VN_bandwidth[i]), "constant", constant_values=0)[
-                        : self.num_selectable_slots]
-                mask.append(slots)
-
-            masks.append(np.stack(mask, axis=1))
-
-        total_mask_2d = np.concatenate(masks, axis=0)
-        df = pd.DataFrame(total_mask_2d)
-        total_mask_1d = np.concatenate([df[n] for n in range(vnet_size)], axis=0).astype(int)
-
-        return total_mask_1d
+    def action_masks(self):
+        request_size = self.current_VN_capacity.size
+        path_mask = self.mask_paths(request_size, self.current_observation["selected_nodes"])
+        self.path_mask = path_mask
+        return path_mask

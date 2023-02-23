@@ -1,8 +1,5 @@
 project: VONE-DRL
-env_name: vone_Env_Nodes_Unsorted-v0
-log_dir: ./runs
-data_file: ./runs/best_nodes/train.csv
-model_file: ./runs/best_nodes/nodes_model.zip
+env_name: vone_Env_Nodes-v0
 env_args:
     episode_length: 5000
     load: 9
@@ -18,7 +15,4 @@ env_args:
     min_vnet_size: 3
     max_vnet_size: 3
     vnet_size_dist: fixed
-    ksp_fdl: False
-wandb_config:
-    policy_type: MultiInputPolicy
-    total_timesteps: 135000
+    ksp_fdl: True

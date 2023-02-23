@@ -1,6 +1,6 @@
     project: VONE-DRL
     name: "Agent Routing Combined Masked"
-    program: main.py
+    program: train.py
     method: bayes
     metric:
       name: mean_reward
