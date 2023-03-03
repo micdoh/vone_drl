@@ -1,6 +1,6 @@
 [submodule "networktoolbox"]
 	path = networktoolbox
 	url = https://gitlab.ee.ucl.ac.uk/ong/networks/networktoolbox.git
-[submodule "sb3-contrib"]
+[submodule "sb3_contrib"]
 	path = sb3-contrib
 	url = https://gitlab.ee.ucl.ac.uk/ong/networks/virtual-optical-network-embedding/stable-baselines3-contrib-multistep-masking.git
