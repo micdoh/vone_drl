@@ -95,7 +95,8 @@ if __name__ == "__main__":
         n_steps=args.n_steps,
         batch_size=args.batch_size if args.batch_size else args.n_steps,
         multistep_masking=args.multistep_masking,
-        multistep_masking_terms=args.multistep_masking_terms,
+        multistep_masking_attr=args.multistep_masking_attr,
+        multistep_masking_n_steps=args.multistep_masking_n_steps,
         action_interpreter=args.action_interpreter,
 
     )
@@ -122,7 +123,7 @@ if __name__ == "__main__":
         model.set_env(env)
 
     model.learn(
-        total_timesteps=conf["total_timesteps"], callback=callback_list
+        total_timesteps=args.total_timesteps, callback=callback_list
     )
 
     if args.save_model and not args.no_wandb:

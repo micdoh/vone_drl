@@ -42,10 +42,10 @@ def parse_args():
         "is number of environment copies running in parallel)",
     )
     parser.add_argument(
-        "--linear_scheduler",
-        default=0,
-        type=int,
-        help="Use linear schedule to decay learning rate",
+        "--schedule",
+        default=None,
+        type=str,
+        help="Type of learning rate schedule to use",
     )
     parser.add_argument(
         "--batch_size", default=64, type=str, help="No. of samples per batch"
@@ -66,13 +66,19 @@ def parse_args():
         "--masking", action="store_true", help="Use invalid action masking"
     )
     parser.add_argument(
-        "--multistep_masking", action="store_true", help="Use recurrent invalid action masking"
+        "--multistep_masking", action="store_true", help="Use multistep invalid action masking"
     )
     parser.add_argument(
-        "--multistep_masking_terms",
-        default="nodes_selected",
-        nargs='*',  # 0 or more values expected => creates a list
+        "--multistep_masking_attr",
+        default="curr_selection",
+        type=str,
         help="Specify environment variables to be accessed sequentially in multistep masking",
+    )
+    parser.add_argument(
+        "--multistep_masking_n_steps",
+        default=1,
+        type=int,
+        help="Specify number of steps to mask in multistep masking",
     )
     parser.add_argument(
         "--action_interpreter",

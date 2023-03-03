@@ -3,11 +3,11 @@ import wandb
 import pandas as pd
 import os
 from stable_baselines3 import PPO
-from sb3_contrib import MaskablePPO
+from sb3_contrib.sb3_contrib import MaskablePPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from pathlib import Path
 from datetime import datetime
-from sb3_contrib.common.maskable.evaluation import evaluate_policy
+from sb3_contrib.sb3_contrib.common.maskable.evaluation import evaluate_policy
 from stable_baselines3.common.callbacks import CallbackList
 from wandb.integration.sb3 import WandbCallback
 from callback import CustomCallback

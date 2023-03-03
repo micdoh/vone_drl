@@ -124,6 +124,7 @@ class VoneEnv(gym.Env):
         self.nodes_selected = None
         self.k_paths_selected = None
         self.initial_slot_selected = None
+        self.curr_selection = None
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
@@ -301,13 +302,43 @@ class VoneEnv(gym.Env):
         # Convert to 1s and 0s
         return 1*node_mask
 
-    def mask_paths(self, vnet_size, nodes_selected):
-        """Return the mask of permitted path actions."""
+    def mask_paths(self, vnet_size, curr_selection):
+        """Return the mask of permitted path actions.
+        First, return all ones if no nodes selected (all actions permitted).
+        Then, """
+        # TODO - Make compatible with VoneEnvPaths
         masks = []
 
         # Return all ones if no nodes selected (all actions permitted)
-        if nodes_selected is None:
+        if not curr_selection:
             return np.array([1]*self.k_paths*self.num_selectable_slots*vnet_size)
+
+        nodes_selected = curr_selection[0][0]
+        topology = self.topology.topology_graph
+
+        # Map previously masked and selected paths
+        if len(self.curr_selection) > 1:
+            # Get previously selected paths and slots
+            padding = [0]*(vnet_size-len(curr_selection))
+            k_path_selected = [curr_selection[i+1][1][i] for i in range(len(curr_selection)-1)]
+            initial_slot_selected = [curr_selection[i+1][2][i] for i in range(len(curr_selection)-1)]
+
+            # Get paths from previously selected nodes for selected path-slots
+            path_list = self.get_links_from_selection(nodes_selected, k_path_selected+padding)[:len(k_path_selected)]
+            service = Service(
+                0,
+                0,
+                nodes_selected,
+                copy.deepcopy(self.current_VN_capacity),
+                path_list,
+                copy.deepcopy(self.current_VN_bandwidth),
+                initial_slot_selected,
+            )
+
+            topology = copy.deepcopy(self.topology.topology_graph)
+
+            # Apply selected path-slots to copy of topology
+            self.map_service_links(service, topology)
 
         # Get all paths between node pairs
         for k in range(self.k_paths):
@@ -317,36 +348,49 @@ class VoneEnv(gym.Env):
 
             # Get all slots on each path
             for i, path in enumerate(paths):
-                slots = self.get_path_slots(path)
+                slots = self.get_path_slots(path, topology)
                 # Set to zero the self.current_VN_bandwidth[i]-1 slots before any zero
                 zero_indices = np.asarray(slots == 0).nonzero()[0]
                 for i_zero in zero_indices:
-                    slots[
                     # max to avoid negative index
-                    max(0, i_zero-self.current_VN_bandwidth[i]+1): i_zero] = 0
+                    slots[max(0, i_zero-self.current_VN_bandwidth[i]+1): i_zero] = 0
                 # Set to zero the final block of size (bw-1)
                 slots = slots[: self.num_slots - self.current_VN_bandwidth[i] + 1]
-                slots = np.pad(slots, (0, self.current_VN_bandwidth[i]), "constant", constant_values=0)[
-                        : self.num_selectable_slots]
+                slots = np.pad(
+                    slots,
+                    (0, self.current_VN_bandwidth[i]),
+                    "constant",
+                    constant_values=0)[: self.num_selectable_slots]
                 mask.append(slots)
 
             masks.append(np.stack(mask, axis=1))
 
+        # Transform 2D mask (k_paths*num_selectable_slots, vnet_size)
+        # to 1D mask (k_paths*num_selectable_slots*vnet_size)
         total_mask_2d = np.concatenate(masks, axis=0)
-        df = pd.DataFrame(total_mask_2d)
-        total_mask_1d = np.concatenate([df[n] for n in range(vnet_size)], axis=0).astype(int)
+        total_mask_2d_df = pd.DataFrame(total_mask_2d)
+
+        if len(self.curr_selection) > 1:
+            # TODO - Replace mask with previous mask for already selected paths
+            dim_size = self.k_paths*self.num_selectable_slots
+            prev_mask = self.path_mask
+            prev_mask_df = pd.DataFrame(prev_mask.reshape(dim_size, vnet_size, order='F'))
+            for i in range(1, len(curr_selection)):
+                total_mask_2d_df[i-1] = prev_mask_df[i-1]
+
+        total_mask_1d = np.concatenate([total_mask_2d_df[n] for n in range(vnet_size)], axis=0).astype(int)
 
         return total_mask_1d
 
     def action_masks(self):
         request_size = self.current_VN_capacity.size
         node_capacities = self.current_observation["node_capacities"]
-        if self.nodes_selected is None:
+        if not self.curr_selection:
             node_mask = self.mask_nodes(node_capacities)
             self.node_mask = node_mask
-        else:
-            node_mask = self.node_mask
-        path_mask = self.mask_paths(request_size, self.nodes_selected)
+        path_mask = self.mask_paths(request_size, self.curr_selection)
+        self.path_mask = path_mask
+        node_mask = self.node_mask
         return np.concatenate([node_mask, path_mask], axis=0).astype(int)
 
     def generate_path_selection(self, vnet_size):
@@ -449,6 +493,7 @@ class VoneEnv(gym.Env):
         self.nodes_selected = None
         self.k_path_selected = None
         self.initial_slot_selected = None
+        self.curr_selection = None
 
     def step(self, action):
         """"""
@@ -631,7 +676,8 @@ class VoneEnv(gym.Env):
         capacity = self.topology.topology_graph.nodes[n]["capacity"]
         return True if capacity > capacity_required else False
 
-    def get_path_slots(self, path):
+    @staticmethod
+    def get_path_slots(path, topology):
         """Return array of slots used by path.
 
         Args:
@@ -640,7 +686,7 @@ class VoneEnv(gym.Env):
         Returns:
             path_slots: Array of slots that are either free or occupied along all links in path
         """
-        path_slots = [self.topology.topology_graph.edges[path[i], path[i + 1]]["slots"] for i in range(len(path)-1)]
+        path_slots = [topology.edges[path[i], path[i + 1]]["slots"] for i in range(len(path)-1)]
         path_slots = np.stack(path_slots, axis=0)
         path_slots = np.min(path_slots, axis=0)
         return path_slots
@@ -653,7 +699,7 @@ class VoneEnv(gym.Env):
             fail_info = fail_messages["end_of_band"]
             return False, fail_info
 
-        path_slots = self.get_path_slots(path)
+        path_slots = self.get_path_slots(path, self.topology.topology_graph)
 
         if path_slots[initial_slot] == 0:
             fail_info = fail_messages["slot_occupied"]
@@ -701,26 +747,36 @@ class VoneEnv(gym.Env):
             (service.arrival_time + service.holding_time, service),
         )
 
-    def map_service(self, service: Service):
-        """Update node and slot capacities"""
-        # nodes mapping
+    @staticmethod
+    def map_service_nodes(service: Service, topology: nx.Graph):
+        """Update node capacities"""
         for i in range(len(service.nodes)):
             node_num = service.nodes[i]
-            self.topology.topology_graph.nodes[node_num][
-                "capacity"
-            ] -= service.nodes_capacity[i]
+            topology.nodes[node_num]["capacity"] -= service.nodes_capacity[i]
 
-        # links mapping
-        for i in range(len(service.path)):
+    def map_service_links(self, service: Service, topology: nx.Graph):
+        """Update link capacities"""
+        for i_path in range(len(service.path)):
+            n_slots = service.links_BW[i_path]
+            initial_slot = service.links_IS[i_path]
             slots_occupied = np.zeros(self.num_slots, dtype=int)
-            for j in range(service.links_BW[i]):
-                slots_occupied[service.links_IS[i] + j] = 1
+            slots_occupied[initial_slot: initial_slot + n_slots] = 1
 
-            for k in range(len(service.path[i]) - 1):
-                s = service.path[i][k]
-                d = service.path[i][k + 1]
+            for n in range(len(service.path[i_path]) - 1):
+                s = service.path[i_path][n]  # Source node
+                d = service.path[i_path][n + 1]  # Destination node
 
-                self.topology.topology_graph.edges[s, d]["slots"] -= slots_occupied
+                topology.edges[s, d]["slots"] -= slots_occupied
+                topology.edges[s, d]["slots"].clip(min=0, max=1, out=topology.edges[s, d]["slots"])
+                # mask = topology.edges[d, s]["slots"] > 0
+                # diff = topology.edges[d, s]["slots"] - slots_occupied
+                # slots = topology.edges[d, s]["slots"]
+                # topology.edges[d, s]["slots"] = np.where(mask, diff, slots)
+
+    def map_service(self, service: Service):
+        """Update node and slot capacities"""
+        self.map_service_nodes(service, self.topology.topology_graph)
+        self.map_service_links(service, self.topology.topology_graph)
 
     def set_load(self, load, mean_service_holding_time):
         """Load = Hold time / inter-arrival time"""
@@ -974,6 +1030,6 @@ class VoneEnvPaths(VoneEnv):
 
     def action_masks(self):
         request_size = self.current_VN_capacity.size
-        path_mask = self.mask_paths(request_size, self.current_observation["selected_nodes"])
+        path_mask = self.mask_paths(request_size, self.curr_selection)
         self.path_mask = path_mask
         return path_mask

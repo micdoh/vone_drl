@@ -9,7 +9,7 @@ from sb3_contrib.common.maskable.utils import get_action_masks
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from sb3_contrib import MaskablePPO
 from env.envs.VoneEnv import (
-    VoneEnvUnsortedSeparate, VoneEnvSortedSeparate, VoneEnvNodesSorted, VoneEnvNodesUnsorted, VoneEnvRoutingSeparate, VoneEnvRoutingCombined, VoneEnvUnsortedCombined
+    VoneEnv, VoneEnvNodes, VoneEnvPaths
 )
 from heuristics import *
 from util_funcs import *
@@ -22,6 +22,29 @@ def setup_vone_env():
         conf["env_name"], **conf["env_args"], seed=1
     )
     return env
+
+@pytest.fixture
+def setup_vone_env_4node():
+    conf = yaml.safe_load(Path("./test/4node.yaml").read_text())
+    env = [
+        make_env(conf["env_name"], seed=i, **conf["env_args"])
+        for i in range(1)
+    ]
+    env = DummyVecEnv(env)
+    return env
+
+def setup_multistep_masking_agent(env):
+    model = MaskablePPO("MultiInputPolicy",
+                        env,
+                        gamma=0.4,
+                        seed=1,
+                        verbose=1,
+                        multistep_masking=True,
+                        multistep_masking_attr="curr_selection",
+                        multistep_masking_n_steps=3,
+                        action_interpreter="select_nodes_paths_slots",
+                        )
+    return model
 
 
 @pytest.fixture
@@ -78,6 +101,30 @@ def test_vone_env(setup_vone_env):
         action = env.action_space.sample()
         obs, reward, done, info = env.step(action)
         action_mask = env.valid_action_mask()
+    assert 1 == 1
+
+
+def test_vone_env_4node_multistep_mask(setup_vone_env_4node):
+    env = setup_vone_env_4node
+    obs = env.reset()
+    model = setup_multistep_masking_agent(env)
+    n_steps = 100
+    info_list = []
+    for _ in range(n_steps):
+        # Random action
+        action, _states = model.predict(obs, env=env)
+        obs, reward, done, info = env.step(action)
+        if reward == 0:
+            max_vnet_size = env.envs[0].max_vnet_size
+            path_action_dim = env.envs[0].k_paths * env.envs[0].num_selectable_slots
+            path_mask = env.envs[0].path_mask
+            node_mask = env.envs[0].node_mask
+            # check if final path_action_dim values of path mask are 0:
+            path_mask_selection_sums = [np.sum(path_mask[-path_action_dim*n:-path_action_dim*(n-1)]) for n in range(1, max_vnet_size+1)]
+            node_mask_sum = np.sum(node_mask)
+            if not ((0 in path_mask_selection_sums) or (node_mask_sum == 0)):
+                assert 0 == 1
+        info_list.append(info)
     assert 1 == 1
 
 
