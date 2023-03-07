@@ -19,7 +19,7 @@
       - ${env}
       - ${interpreter}
       - ${program}
-      - "--file"
+      - "--env_file"
       - "./config/agent_combined.yaml"
       - "--log"
       - "WARN"
