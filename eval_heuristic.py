@@ -1,4 +1,4 @@
-import gym
+import gymnasium as gym
 from heuristics import nsc_ksp_fdl
 import pandas as pd
 import numpy as np

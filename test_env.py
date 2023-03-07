@@ -1,5 +1,5 @@
 import pytest
-import gym
+import gymnasium as gym
 import yaml
 import pandas as pd
 import stable_baselines3.common.env_checker

@@ -19,7 +19,7 @@ loop num_episodes:
 
 import numpy as np
 import pandas as pd
-import gym
+import gymnasium as gym
 import random
 import logging
 from copy import deepcopy
