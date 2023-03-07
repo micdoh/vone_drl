@@ -1030,6 +1030,7 @@ class VoneEnvPaths(VoneEnv):
 
     def action_masks(self):
         request_size = self.current_VN_capacity.size
+        self.curr_selection = [self.current_observation["selected_nodes"]]
         path_mask = self.mask_paths(request_size, self.curr_selection)
         self.path_mask = path_mask
         return path_mask
