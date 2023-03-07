@@ -1,5 +1,5 @@
     project: VONE-DRL
-    name: "Agent Unsorted Combined Masked Linear"
+    name: "Agent Combined"
     program: train.py
     method: bayes
     metric:
@@ -20,12 +20,11 @@
       - ${interpreter}
       - ${program}
       - "--file"
-      - "./config/config_agent_masked.yaml"
+      - "./config/agent_combined.yaml"
       - "--log"
       - "WARN"
       - "--masking"
-      - "--recurrent_masking"
-      - "--linear_scheduler=1"
+      - "--multistep_masking"
       - "--save_model"
       - ${args}
     early_terminate:
