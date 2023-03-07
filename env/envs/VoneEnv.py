@@ -168,6 +168,9 @@ class VoneEnv(gym.Env):
             "load": self.load,
         }
 
+    def seed(self, seed: int = None):
+        self.rng.seed(seed)
+
     def define_observation_space(self):
         node_resource_capacity = [self.node_capacity + 1] * self.num_nodes
         self.obs_request = gym.spaces.MultiDiscrete(

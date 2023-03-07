@@ -3,7 +3,7 @@ from env.envs.VoneEnv import (
     VoneEnvNodes,
     VoneEnvPaths,
 )
-from gym.envs.registration import register
+from gymnasium.envs.registration import register
 
 register(
     id="vone_Env-v0",
