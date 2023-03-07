@@ -94,7 +94,6 @@ def test_check_env():
 
 def test_vone_env(setup_vone_env):
     env = setup_vone_env
-    obs = env.reset()
     n_steps = 10
     for _ in range(n_steps):
         # Random action
