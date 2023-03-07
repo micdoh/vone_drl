@@ -10,7 +10,7 @@ packages = [{include = "vone_drl"}]
 python = ">=3.9,<3.11"
 Gymnasium = "^0.26.3"
 numpy = "^1.23.4"
-stable-baselines3 = "^1.6.2"
+stable-baselines3 = {git = "https://github.com/DLR-RM/stable-baselines3", branch = "feat/gymnasium-support"}
 networkx = "^2.8.7"
 Cython = "^0.29.32"
 pymongo = "^4.3.2"
