@@ -232,7 +232,7 @@ class VoneEnv(gym.Env):
         self.results = results
         observation = self.observation()
 
-        return observation
+        return observation, results
 
     def init_topology(self):
         """Initialise topology based on contents of config dir"""
@@ -623,7 +623,7 @@ class VoneEnv(gym.Env):
         self.current_info = info
         self.reset_selections()  # Remove selections for next step action masking
 
-        return observation, reward, done, info
+        return observation, reward, done, False, info
 
     def get_links_from_selection(self, nodes_selected, k_path_selected):
         path_list = []
