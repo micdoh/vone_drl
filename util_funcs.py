@@ -76,7 +76,7 @@ def parse_args():
     )
     parser.add_argument(
         "--multistep_masking_n_steps",
-        default=1,
+        default=3,
         type=int,
         help="Specify number of steps to mask in multistep masking",
     )
