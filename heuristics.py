@@ -367,9 +367,10 @@ def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
     Args:
         the_env: Gym environment.
         combined: whether to use combined path-slot selection or separate
+        i.e. combined dimension for path selection or separate dimension per path
 
     Returns:
-
+        results: dict of load, reward, std
     """
     observation = the_env.reset()
 

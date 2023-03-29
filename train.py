@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
-    args.total_timesteps *= args.n_procs
+    #args.total_timesteps *= args.n_procs
 
     # Setup wandb run
     if not args.no_wandb:

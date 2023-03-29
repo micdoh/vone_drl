@@ -20,18 +20,6 @@ from util_funcs import get_nth_item
 logger = logging.getLogger(__name__)
 
 # TODO - Functionalise KMC-FF, KMF-FF
-# TODO - Plan experiments:
-#  1. all-in decision-making (train and run this to get max performance) = 1 option
-#  2. nodes FDL/FF with or without masking = 4 options
-#  3. routing path-and-slot selection, path-FF, path-FDL = 3 options
-#  4. Random policy (could have any of combo of decision stages random) = 1-8 options
-#  So, need to
-
-# TODO - Implement scaling of capacity
-
-# TODO - IDEA: Change the reward on the basis of this network utilisation metric.
-#  Shaped reward for empty network and simple reward for full network (to allow more honest exploration)
-# TODO - Log different failure modes i.e. slot clash, insufficient node capacity, insufficient slots
 # TODO - Define Selector class that would allow kSP-FF, -FDL, random, NSC, KMC, etc. to be easily interchanged
 
 
@@ -646,14 +634,14 @@ class VoneEnv(gym.Env):
             return self.min_vnet_size
         elif dist_name == "random":
             return self.rng.randint(*(self.min_vnet_size, self.max_vnet_size))
-        # TODO - Investigate other possible distributions e.g. realistic traffic
+        # TODO - Investigate other possible distributions
         else:
             raise Exception(
                 f"Invalid virtual network size distribution selected: {dist_name}"
             )
 
     def render(self, mode="human"):
-        return self.topology.topology_graph, self.num_slots
+        return self.topology.topology_graph
 
     def reward(self):
         """Customisable reward function"""

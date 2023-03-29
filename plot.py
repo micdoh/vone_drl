@@ -105,12 +105,14 @@ if __name__ == "__main__":
             rc('legend', fontsize=13)
             rc('text.latex', preamble=r'\usepackage{cmbright}')
 
-        plt.plot(path_train_df["Step"], path_train_df["acceptance_ratio"], label="Path Agent", marker='v', markersize=2)
-        plt.plot(node_train_df["Step"], node_train_df["acceptance_ratio"], label="Node Agent", marker="o", markersize=2)
-        plt.plot(combined_train_df["Step"][:40], combined_train_df["acceptance_ratio"][:40], label="Combined Agent", marker='d', markersize=2)
+        plt.plot(path_train_df["Step"], path_train_df["acceptance_ratio"], label="Path Agent", marker='v')
+        plt.plot(node_train_df["Step"], node_train_df["acceptance_ratio"], label="Node Agent", marker="o")
+        plt.plot(combined_train_df["Step"][:40], combined_train_df["acceptance_ratio"][:40], label="Combined Agent", marker='d')
 
         plt.legend()
         plt.ylabel("Acceptance Ratio")
         plt.xlabel("Training Episode")
         plt.ylim(0, 1)
+        plt.xlim(0, 40)
+        plt.grid(True)
         plt.show()
