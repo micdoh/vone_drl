@@ -7,14 +7,17 @@
       goal: maximize
     parameters:
       learning_rate:
-        min: 0.0003
-        max: 0.002
+        min: 0.00005
+        max: 0.001
       gamma:
-        min: 0.5
-        max: 0.7
+        min: 0.4
+        max: 0.6
       n_steps:
-        min: 40
-        max: 80
+        values:
+          - 50
+          - 75
+          - 100
+          - 125
     command:
       - ${env}
       - ${interpreter}
@@ -28,7 +31,7 @@
       - "--save_model"
       - ${args}
     early_terminate:
-      eta: 3
-      max_iter: 27
-      s: 2
+      eta: 2
+      min_iter: 3
+      s: 4
       type: hyperband
