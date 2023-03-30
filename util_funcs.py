@@ -28,6 +28,18 @@ def parse_args():
         "--gamma", default=0.6, type=float, help="Discount factor"
     )
     parser.add_argument(
+        "--clip_range",
+        default=0.2,
+        type=float,
+        help="Clipping range for PPO",
+    )
+    parser.add_argument(
+        "--clip_range_vf",
+        default=None,
+        type=float,
+        help="Clipping range for value function",
+    )
+    parser.add_argument(
         "--gae_lambda",
         default=0.908,
         type=float,
