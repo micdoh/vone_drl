@@ -117,7 +117,7 @@ def parse_args():
     parser.add_argument(
         "--policy_type",
         default="MultiInputPolicy",
-        help="Specify type of policy to be used my agent",
+        help="Specify type of policy to be used by agent",
     )
     parser.add_argument(
         "--total_timesteps",
