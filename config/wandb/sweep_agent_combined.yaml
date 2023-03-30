@@ -26,6 +26,11 @@
       - "./config/agent_combined.yaml"
       - "--log"
       - "WARN"
+      - "--multithread"
+      - "--n_procs"
+      - 10
+      - "--total_timesteps"
+      - 4800000
       - "--masking"
       - "--multistep_masking"
       - "--save_model"
