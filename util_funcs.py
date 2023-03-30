@@ -215,9 +215,10 @@ def mask_fn(env: gym.Env) -> np.ndarray:
 
 
 def make_env(env_id, seed, **kwargs):
-    """Used for instantiating multiple (vectorised) envs"""
+    """Used for instantiating multiple (vectorised) envs.
+    Disable env checker to ensure env is not wrapped (to set env attrs for action masking)"""
     def _init():
-        env = gym.make(env_id, **kwargs)
+        env = gym.make(env_id, disable_env_checker=True, **kwargs)
         env.seed(seed)
         return env
 

@@ -362,7 +362,7 @@ class VoneEnv(gym.Env):
         total_mask_2d_df = pd.DataFrame(total_mask_2d)
 
         if len(self.curr_selection) > 1:
-            # TODO - Replace mask with previous mask for already selected paths
+            # Replace mask with previous mask for already selected paths
             dim_size = self.k_paths*self.num_selectable_slots
             prev_mask = self.path_mask
             prev_mask_df = pd.DataFrame(prev_mask.reshape(dim_size, vnet_size, order='F'))
