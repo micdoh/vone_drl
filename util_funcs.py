@@ -46,6 +46,18 @@ def parse_args():
         help="Factor for trade-off of bias vs variance for Generalized Advantage Estimator",
     )
     parser.add_argument(
+        "--reward_success",
+        default=10,
+        type=int,
+        help="Reward for successful request",
+    )
+    parser.add_argument(
+        "--reward_failure",
+        default=0,
+        type=int,
+        help="Reward for failed request",
+    )
+    parser.add_argument(
         "--n_steps",
         default=47,
         type=int,

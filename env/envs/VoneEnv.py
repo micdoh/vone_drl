@@ -115,6 +115,8 @@ class VoneEnv(gym.Env):
         self.k_paths_selected = None
         self.initial_slot_selected = None
         self.curr_selection = None
+        self.reward_success = reward_success
+        self.reward_fail = reward_fail
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
