@@ -1,0 +1,33 @@
+    project: VONE-DRL
+    name: "Agent Combined"
+    program: train.py
+    method: bayes
+    metric:
+      name: mean_reward
+      goal: maximize
+    parameters:
+      clip_range:
+        min: 0.1
+        max: 0.5
+    command:
+      - ${env}
+      - ${interpreter}
+      - ${program}
+      - "--env_file"
+      - "./config/agent_combined.yaml"
+      - "--log"
+      - "WARN"
+      - "--multithread"
+      - "--n_procs"
+      - 10
+      - "--total_timesteps"
+      - 4800000
+      - "--masking"
+      - "--multistep_masking"
+      - "--save_model"
+      - ${args}
+    early_terminate:
+      eta: 2
+      min_iter: 3
+      s: 4
+      type: hyperband
