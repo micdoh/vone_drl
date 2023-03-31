@@ -90,10 +90,12 @@ if __name__ == "__main__":
         verbose=0,
         device="cuda",
         gamma=args.gamma,
-        learning_rate=choose_schedule(args.schedule, args.learning_rate),
+        learning_rate=choose_schedule(args.lr_schedule, args.learning_rate),
         gae_lambda=args.gae_lambda,
         n_steps=args.n_steps,
         batch_size=args.batch_size if args.batch_size else args.n_steps,
+        clip_range=choose_schedule(args.clip_range_schedule, args.clip_range),
+        clip_range_vf=choose_schedule(args.clip_range_vf_schedule, args.clip_range_vf),
     )
     if args.multistep_masking:
         agent_kwargs.update(

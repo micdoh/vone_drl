@@ -54,10 +54,22 @@ def parse_args():
         "is number of environment copies running in parallel)",
     )
     parser.add_argument(
-        "--schedule",
+        "--lr_schedule",
         default=None,
         type=str,
         help="Type of learning rate schedule to use",
+    )
+    parser.add_argument(
+        "--clip_range_schedule",
+        default=None,
+        type=str,
+        help="Type of clipping range schedule to use",
+    )
+    parser.add_argument(
+        "--clip_range_vf_schedule",
+        default=None,
+        type=str,
+        help="Type of clipping range schedule to use for value function",
     )
     parser.add_argument(
         "--batch_size", default=64, type=str, help="No. of samples per batch"
