@@ -426,7 +426,7 @@ def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
             # TODO - Should make index 0 of action a fail? Or just return a False here and check later?
             action_ints = [0] + [0] * request_size if combined else [0, 0, 0]
 
-        observation, reward, done, info = the_env.step(
+        observation, reward, done, _, info = the_env.step(
             action_ints
         )
         topology_0, _ = the_env.render()

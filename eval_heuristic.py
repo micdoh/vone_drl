@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import argparse
 import env.envs
+import yaml
 
 
 if __name__ == "__main__":
@@ -24,18 +25,11 @@ if __name__ == "__main__":
         "--num_episodes", default=3, type=int, help="Number of episodes"
     )
     parser.add_argument(
-        "--episode_length", default=5000, type=int, help="Episode length"
-    )
-    parser.add_argument(
-        "--k_paths", default=5, type=int, help="Number of paths"
-    )
-    parser.add_argument(
-        "--mean_service_holding_time", default=10, type=int, help="Mean service holding time"
-    )
-    parser.add_argument(
-        "--env_name", default="vone_Env-v0", type=str, help="Environment name"
+        "--env_file", type=str, help="Environment config file"
     )
     args = parser.parse_args()
+
+    conf = yaml.safe_load(Path(args.env_file).read_text())
 
     data_file = Path(args.output_file)
 
@@ -43,15 +37,11 @@ if __name__ == "__main__":
 
     for load in range(args.min_load, args.max_load+1):
 
-        env_args = dict(
-            episode_length=args.episode_length,
-            load=load,
-            mean_service_holding_time=args.mean_service_holding_time,
-            k_paths=args.k_paths,
-            wandb_log=False,
-        )
+        env_args = conf["env_args"]
+        env_args["load"] = load
+        env_args["wandb_log"] = False
 
-        the_env = gym.make(args.env_name, **env_args)
+        the_env = gym.make(conf["env_name"], **env_args)
         results = []
         for ep in range(args.num_episodes):
 

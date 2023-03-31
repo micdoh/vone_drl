@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # TODO - Functionalise KMC-FF, KMF-FF
 # TODO - Define Selector class that would allow kSP-FF, -FDL, random, NSC, KMC, etc. to be easily interchanged
-
+# TODO - Instead of generators, just create the action tables once and index
 
 fail_messages = {
     "node_mapping": {"code": 1, "message": "Node mapping failure"},
@@ -77,6 +77,8 @@ class VoneEnv(gym.Env):
         wandb_log: bool = False,
         routing_choose_k_paths: bool = False,
         ksp_fdl: bool = True,
+        reward_success: float = 10,
+        reward_fail: float = 0,
     ):
         self.current_time = 0
         self.allocated_Service = []
@@ -262,15 +264,6 @@ class VoneEnv(gym.Env):
         for node in self.topology.topology_graph.nodes:
             self.topology.topology_graph.nodes[node]["capacity"] = self.node_capacity
 
-    def generate_node_selection(self, vnet_size):
-        """Populate node_selection_dict with vnet_size: array pairs.
-        Array elements indicate node selections, indexed by action space action number"""
-        # node selection is row in array e.g. [1, 13, 7] that indicates which nodes will comprise virtual network
-        df = np.array(list(product(range(self.num_nodes), repeat=vnet_size)))
-        # Get duplicate node row indices and delete rows
-        a = (df[:, 0] == df[:, 1]) | (df[:, 1] == df[:, 2]) | (df[:, 0] == df[:, 2])
-        return np.delete(df, np.where(a), axis=0)
-
     def mask_nodes(self, node_capacities):
         """Return the mask of permitted node actions."""
 
@@ -383,6 +376,15 @@ class VoneEnv(gym.Env):
         self.path_mask = path_mask
         node_mask = self.node_mask
         return np.concatenate([node_mask, path_mask], axis=0).astype(int)
+
+    def generate_node_selection(self, vnet_size):
+        """Populate node_selection_dict with vnet_size: array pairs.
+        Array elements indicate node selections, indexed by action space action number"""
+        # node selection is row in array e.g. [1, 13, 7] that indicates which nodes will comprise virtual network
+        df = np.array(list(product(range(self.num_nodes), repeat=vnet_size)))
+        # Get duplicate node row indices and delete rows
+        a = (df[:, 0] == df[:, 1]) | (df[:, 1] == df[:, 2]) | (df[:, 0] == df[:, 2])
+        return np.delete(df, np.where(a), axis=0)
 
     def generate_path_selection(self, vnet_size):
         """Populate path_selection_dict with vnet_size: array pairs.
@@ -641,16 +643,11 @@ class VoneEnv(gym.Env):
             )
 
     def render(self, mode="human"):
-        return self.topology.topology_graph
+        return self.topology.topology_graph, self.num_slots
 
     def reward(self):
         """Customisable reward function"""
-        if self.accepted:
-            reward = 10
-        else:
-            reward = 0
-
-        return reward
+        return self.reward_success if self.accepted else self.reward_fail
 
     def get_k_shortest_paths(self, g, source, target, k, weight=None):
         """
