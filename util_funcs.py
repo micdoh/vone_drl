@@ -6,7 +6,7 @@ from itertools import islice
 from typing import Generator, Any, Callable
 import logging
 import argparse
-
+import time
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -280,3 +280,26 @@ def linear_schedule(initial_value: float) -> Callable[[float], float]:
         return progress_remaining * initial_value
 
     return func
+
+
+def conditional_decorator(dec, condition):
+    def decorator(func):
+        if not condition:
+            # Return the function unchanged, not decorated.
+            return func
+        return dec(func)
+    return decorator
+
+
+def timeit(f):
+
+    def timed(*args, **kw):
+
+        ts = time.time()
+        result = f(*args, **kw)
+        te = time.time()
+
+        print(f'func:{f.__name__} args:[{args}, {kw}] took:{te-ts:2.4f} sec')
+        return result
+
+    return timed

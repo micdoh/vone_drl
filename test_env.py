@@ -127,6 +127,7 @@ def get_env_attrs(env):
         node_mask = env.envs[0].node_mask
     return max_vnet_size, path_action_dim, path_mask, node_mask
 
+@timeit
 def loop_episodes_to_check_masking(env, model, n_steps):
     info_list = []
     obs = env.reset()

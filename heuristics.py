@@ -384,6 +384,9 @@ def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
     while step < the_env.episode_length:
         step += 1
         request_size = the_env.current_VN_capacity.size
+        node_table = the_env.node_selection_dict[request_size]
+        path_table = the_env.path_selection_dict[request_size]
+        slot_table = the_env.slot_selection_dict[request_size]
 
         # Get node mapping by ranking according to Node Switching Capacity
         action_node, fail_info = select_nodes_nsc(the_env, topology)
@@ -397,33 +400,28 @@ def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
                 the_env, topology, vnet_bandwidth, action_node
             )
 
-            # The environment requires actions to be presented in the same
-            # integer format as the agent uses.
+            # The environment requires actions to be presented in the same integer format as the agent uses.
             # Store those integers here
             action_ints = []
 
             # Find row in node selection table that matches desired action
-            node_selection_gen = the_env.generate_node_selection(request_size)
-            action_ints.append(get_gen_index(node_selection_gen, action_node))
+            action_ints.append(np.where(np.all(node_table == action_node, axis=1))[0][0])
 
             # If using combined path-slot selection
             if combined:
-
-                for i in range(request_size):
-                    action_ints.append(action_k_path[i]*the_env.num_selectable_slots + action_initial_slots[i])
+                path_action_ints = [action_k_path[i]*the_env.num_selectable_slots + action_initial_slots[i]
+                                    for i in range(request_size)]
+                action_ints.extend(path_action_ints)
 
             else:
                 # Find row in path selection table that matches desired action
-                path_selection_gen = the_env.generate_path_selection(request_size)
-                action_ints.append(get_gen_index(path_selection_gen, action_k_path))
+                action_ints.append(np.where(np.all(path_table == action_k_path, axis=1))[0][0])
 
                 # Find row in slot selection table that matches desired action
-                slot_selection_gen = the_env.generate_slot_selection(request_size)
-                action_ints.append(get_gen_index(slot_selection_gen, action_initial_slots))
+                action_ints.append(np.where(np.all(slot_table == action_initial_slots, axis=1))[0][0])
 
         else:
-
-            # TODO - Should make index 0 of action a fail? Or just return a False here and check later?
+            # If no path found, select random action
             action_ints = [0] + [0] * request_size if combined else [0, 0, 0]
 
         observation, reward, done, _, info = the_env.step(

@@ -59,6 +59,8 @@ if __name__ == "__main__":
             model_save_file,
         ) = define_logs((args.id if args.id else start_time), args.log_dir, args.log)
 
+    conf["env_args"]["reward_success"] = args.reward_success
+    conf["env_args"]["reward_failure"] = args.reward_failure
     # Setup environment
     env = [
         make_env(conf["env_name"], seed=i, **conf["env_args"])
