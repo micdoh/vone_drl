@@ -10,6 +10,8 @@ from wandb.integration.sb3 import WandbCallback
 from callback import CustomCallback
 from util_funcs import make_env, define_logs, choose_schedule, parse_args
 import env.envs.VoneEnv as VoneEnv
+import torch as th
+th.autograd.set_detect_anomaly(True)
 
 
 if __name__ == "__main__":
@@ -19,8 +21,6 @@ if __name__ == "__main__":
     callbacks = []
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
-
-    #args.total_timesteps *= args.n_procs
 
     # Setup wandb run
     if not args.no_wandb:
@@ -98,6 +98,8 @@ if __name__ == "__main__":
         batch_size=args.batch_size if args.batch_size else args.n_steps,
         clip_range=choose_schedule(args.clip_range_schedule, args.clip_range),
         clip_range_vf=choose_schedule(args.clip_range_vf_schedule, args.clip_range_vf),
+        n_epochs=args.n_epochs,
+        ent_coef=args.ent_coef,
     )
     if args.multistep_masking:
         agent_kwargs.update(

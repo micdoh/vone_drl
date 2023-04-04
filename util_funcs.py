@@ -40,6 +40,18 @@ def parse_args():
         help="Clipping range for value function",
     )
     parser.add_argument(
+        "--n_epochs",
+        default=1,
+        type=int,
+        help="No. of times to update ",
+    )
+    parser.add_argument(
+        "--ent_coef",
+        default=0.0,
+        type=float,
+        help="Coefficient for entropy term in the loss function",
+    )
+    parser.add_argument(
         "--gae_lambda",
         default=0.908,
         type=float,
@@ -59,7 +71,7 @@ def parse_args():
     )
     parser.add_argument(
         "--n_steps",
-        default=47,
+        default=50,
         type=int,
         help="The number of steps to run for each environment per update "
         "(i.e. rollout buffer size is n_steps * n_envs where n_envs "
@@ -84,7 +96,7 @@ def parse_args():
         help="Type of clipping range schedule to use for value function",
     )
     parser.add_argument(
-        "--batch_size", default=64, type=str, help="No. of samples per batch"
+        "--batch_size", default=64, type=int, help="No. of samples per batch"
     )
     parser.add_argument(
         "--n_procs",
