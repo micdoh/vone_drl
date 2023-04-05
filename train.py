@@ -61,6 +61,7 @@ if __name__ == "__main__":
 
     conf["env_args"]["reward_success"] = args.reward_success
     conf["env_args"]["reward_failure"] = args.reward_failure
+    conf["env_args"]["reject_action"] = args.reject_action
     # Setup environment
     env = [
         make_env(conf["env_name"], seed=i, **conf["env_args"])

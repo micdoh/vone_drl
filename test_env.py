@@ -128,7 +128,7 @@ def get_env_attrs(env):
     return max_vnet_size, path_action_dim, path_mask, node_mask
 
 @timeit
-def loop_episodes_to_check_masking(env, model, n_steps):
+def loop_episodes_to_check_masking(env, model, n_steps, reject_action=True):
     info_list = []
     obs = env.reset()
     for _ in range(n_steps):
@@ -140,9 +140,14 @@ def loop_episodes_to_check_masking(env, model, n_steps):
             # check if final path_action_dim values of path mask are 0:
             path_mask_selection_sums = [np.sum(path_mask[path_action_dim*n:path_action_dim*(n+1)]) for n in range(max_vnet_size)]
             node_mask_sum = np.sum(node_mask)
-            # If no part path mask is entirely 0 or node mask is 0, then fail
-            if not ((0 in path_mask_selection_sums) or (node_mask_sum == 0)):
-                return False  # Fail
+            if reject_action:
+                if not action[0][0] == 0:  # Check if reject action selected
+                    if not 0 in path_mask_selection_sums:
+                        return False  # Fail
+            else:
+                # If no part path mask is entirely 0 or node mask is 0, then fail
+                if not ((0 in path_mask_selection_sums) or (node_mask_sum == 0)):
+                    return False  # Fail
         info_list.append(info)
     for item in info_list:
         print(item)
@@ -164,7 +169,7 @@ def test_vone_env(setup_vone_env):
 def test_vone_env_100_slots(setup_vone_env_100_slots):
     env = setup_vone_env_100_slots
     model = setup_multistep_masking_agent(env)
-    n_steps = 2000
+    n_steps = 10000
     assert loop_episodes_to_check_masking(env, model, n_steps) is True
 
 

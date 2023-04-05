@@ -78,6 +78,11 @@ def parse_args():
         "is number of environment copies running in parallel)",
     )
     parser.add_argument(
+        "--reject_action",
+        action="store_true",
+        help="Bool to use reject action",
+    )
+    parser.add_argument(
         "--lr_schedule",
         default=None,
         type=str,
