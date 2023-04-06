@@ -233,7 +233,6 @@ class VoneEnv(gym.Env):
         self.accepted = False
         self.reset_nodes()
         self.reset_slots()
-        self.request_generator()
         self.total_reward = 0
         self.num_resets += 1
         self.results = results
@@ -605,7 +604,6 @@ class VoneEnv(gym.Env):
 
         self.set_load(self.load, self.mean_service_holding_time)
         self.traffic_generator()
-        self.request_generator()
         reward = self.reward()
         self.total_reward += reward
 
@@ -826,7 +824,8 @@ class VoneEnv(gym.Env):
                 break
 
     def request_generator(self):
-        """Generate requested node capacity and link bandwidth"""
+        """Generate requested node capacity and link bandwidth
+        (Deprecated - observation() handles this now)"""
         for i in range(len(self.current_VN_capacity)):
             self.current_VN_capacity[i] = self.rng.randint(
                 *(self.min_node_cap_request, self.max_node_cap_request)
@@ -855,22 +854,22 @@ class VoneEnv(gym.Env):
             )
 
     def observation(self):
+        """Observation is the node capacities, link bandwidths
+        and requested node resources and bandwidths as integers"""
         # Find row in node request table that matches observation
         node_request_table = self.vnet_cap_request_dict[self.current_VN_capacity.size]
-        node_act_int = np.where(
-            (node_request_table == self.current_VN_capacity).all(axis=1)
-        )[0]
+        node_act_int = self.rng.randint(0, node_request_table.shape[0]-1)
+        self.current_VN_capacity = node_request_table[node_act_int]
 
         # Find row in slot request table that matches observation
         slot_request_table = self.vnet_bw_request_dict[self.current_VN_bandwidth.size]
-        slot_act_int = np.where(
-            (slot_request_table == self.current_VN_bandwidth).all(axis=1)
-        )[0]
+        slot_act_int = self.rng.randint(0, slot_request_table.shape[0]-1)
+        self.current_VN_bandwidth = slot_request_table[slot_act_int]
 
         slots_matrix = self.get_slots_matrix()
 
         obs_dict = {
-            "request": np.array([*node_act_int, *slot_act_int]),
+            "request": np.array([node_act_int, slot_act_int]),
             "node_capacities": self.get_node_capacities(),
             "slots": slots_matrix.reshape(self.obs_slots.shape),
         }
