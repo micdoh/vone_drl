@@ -33,7 +33,7 @@ class CustomCallback(BaseCallback):
         self.data = []
         self.save_every = save_every
         self.total_episode_reward = 0
-        self.record_episode_reward = 0
+        self.record_episode_reward = -1e8
         self.save_model = save_model
         self.episode_length = env.get_attr("episode_length")[0]
         self.save_episode_info=save_episode_info
@@ -101,7 +101,6 @@ class CustomCallback(BaseCallback):
                     f"Best mean reward: {self.record_episode_reward/self.episode_length:.2f} \n"
                     f"Last mean reward per episode: {self.total_episode_reward/self.episode_length:.2f}"
                 )
-
                 if self.total_episode_reward > self.record_episode_reward:
 
                     self.record_episode_reward = self.total_episode_reward
