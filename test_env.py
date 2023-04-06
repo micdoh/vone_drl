@@ -128,7 +128,7 @@ def get_env_attrs(env):
     return max_vnet_size, path_action_dim, path_mask, node_mask
 
 @timeit
-def loop_episodes_to_check_masking(env, model, n_steps, reject_action=True):
+def loop_episodes_to_check_masking(env, model, n_steps, reject_action=False):
     info_list = []
     obs = env.reset()
     for _ in range(n_steps):
@@ -176,7 +176,7 @@ def test_vone_env_100_slots(setup_vone_env_100_slots):
 def test_vone_env_4node_multistep_mask(setup_vone_env_4node):
     env = setup_vone_env_4node
     model = setup_multistep_masking_agent(env)
-    n_steps = 100
+    n_steps = 10000
     assert loop_episodes_to_check_masking(env, model, n_steps) is True
 
 
