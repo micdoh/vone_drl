@@ -13,8 +13,8 @@ from itertools import combinations, product, islice
 from pathlib import Path
 from collections import defaultdict
 from networktoolbox.NetworkToolkit.Topology import Topology
-from heuristics import select_nodes_nsc, select_path_fdl, select_path_ff
-from util_funcs import get_nth_item, timeit, conditional_decorator
+from heuristics import select_path_fdl, select_path_ff, select_path_msp_ef, select_nodes
+from util_funcs import timeit, conditional_decorator
 
 timing = False
 np.seterr(all='raise')
@@ -81,10 +81,12 @@ class VoneEnv(gym.Env):
         vnet_size_dist: str = "fixed",
         wandb_log: bool = False,
         routing_choose_k_paths: bool = False,
-        ksp_fdl: bool = True,
         reward_success: float = 10,
         reward_failure: float = 0,
         reject_action: int = 0,
+        use_afterstate: bool = False,
+        node_heuristic: str = "nsc",
+        path_heuristic: str = "ff",
     ):
         self.current_time = 0
         self.allocated_Service = []
@@ -115,7 +117,6 @@ class VoneEnv(gym.Env):
         self.current_observation = {}
         self.results = {}
         self.routing_choose_k_paths = routing_choose_k_paths
-        self.ksp_fdl = ksp_fdl
         self.num_selectable_slots = self.num_slots - self.min_slot_request + 1
         self.nodes_selected = None
         self.k_paths_selected = None
@@ -124,6 +125,9 @@ class VoneEnv(gym.Env):
         self.reward_success = reward_success
         self.reward_failure = reward_failure
         self.reject_action = reject_action if reject_action in (0,1) else 0
+        self.use_afterstate = use_afterstate
+        self.node_selection_heuristic = node_heuristic
+        self.path_selection_heuristic = path_heuristic
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
@@ -212,7 +216,7 @@ class VoneEnv(gym.Env):
             )
         )
 
-    def reset(self):
+    def reset(self, afterstate=False):
         """Called at beginning of each episode"""
         results = {
             "episode_number": self.num_resets,
@@ -236,7 +240,7 @@ class VoneEnv(gym.Env):
         self.total_reward = 0
         self.num_resets += 1
         self.results = results
-        observation = self.observation()
+        observation = self.observation(afterstate=afterstate)
 
         return observation, results
 
@@ -553,6 +557,7 @@ class VoneEnv(gym.Env):
 
                         # Check if slot is free
                         current_path_free, fail_info = self.is_path_free(
+                            self.topology.topology_graph,
                             path_list[i],
                             initial_slot_selected[i],
                             self.current_VN_bandwidth[i],
@@ -602,6 +607,8 @@ class VoneEnv(gym.Env):
             self.map_service(current_service)
             self.services_accepted += 1
 
+        afterstate = self.observation(afterstate=True) if self.use_afterstate else None
+
         self.set_load(self.load, self.mean_service_holding_time)
         self.traffic_generator()
         reward = self.reward()
@@ -624,6 +631,7 @@ class VoneEnv(gym.Env):
             "paths_selected": k_path_selected,
             "links_selected": path_list,
             "slots_selected": initial_slot_selected,
+            "afterstate": afterstate,
             **fail_info
         }
         self.current_info = info
@@ -631,7 +639,7 @@ class VoneEnv(gym.Env):
         # Truncated is False as episode length is fixed
         return observation, reward, terminated, False, info
 
-    def get_links_from_selection(self, nodes_selected, k_path_selected, adjacency_list=((0, 1), (1, 2), (2, 0))):
+    def get_links_from_selection(self, nodes_selected, k_path_selected, adjacency_list=((0, 1), (1, 2), (0, 2))):
         path_list = [
            self.link_selection_dict[
                nodes_selected[adj[0]], nodes_selected[adj[1]]
@@ -690,7 +698,7 @@ class VoneEnv(gym.Env):
         path_slots = np.min(path_slots, axis=0)
         return path_slots
 
-    def is_path_free(self, path, initial_slot, num_slots):
+    def is_path_free(self, topology, path, initial_slot, num_slots):
         """Check path that initial slot is free and start of block of sufficient capacity"""
         initial_slot = int(initial_slot)
         num_slots = int(num_slots)
@@ -698,7 +706,7 @@ class VoneEnv(gym.Env):
             fail_info = fail_messages["end_of_band"]
             return False, fail_info
 
-        path_slots = self.get_path_slots(path, self.topology.topology_graph)
+        path_slots = self.get_path_slots(path, topology)
 
         if path_slots[initial_slot] == 0:
             fail_info = fail_messages["slot_occupied"]
@@ -853,18 +861,21 @@ class VoneEnv(gym.Env):
                 )
             )
 
-    def observation(self):
+    def observation(self, afterstate: bool = False):
         """Observation is the node capacities, link bandwidths
         and requested node resources and bandwidths as integers"""
-        # Find row in node request table that matches observation
-        node_request_table = self.vnet_cap_request_dict[self.current_VN_capacity.size]
-        node_act_int = self.rng.randint(0, node_request_table.shape[0]-1)
-        self.current_VN_capacity = node_request_table[node_act_int]
+        if afterstate:
+            node_act_int = slot_act_int = 0
+        else:
+            # Find row in node request table indexed by random int
+            node_request_table = self.vnet_cap_request_dict[self.current_VN_capacity.size]
+            node_act_int = self.rng.randint(0, node_request_table.shape[0]-1)
+            self.current_VN_capacity = node_request_table[node_act_int]
 
-        # Find row in slot request table that matches observation
-        slot_request_table = self.vnet_bw_request_dict[self.current_VN_bandwidth.size]
-        slot_act_int = self.rng.randint(0, slot_request_table.shape[0]-1)
-        self.current_VN_bandwidth = slot_request_table[slot_act_int]
+            # Find row in slot request table indexed by random int
+            slot_request_table = self.vnet_bw_request_dict[self.current_VN_bandwidth.size]
+            slot_act_int = self.rng.randint(0, slot_request_table.shape[0]-1)
+            self.current_VN_bandwidth = slot_request_table[slot_act_int]
 
         slots_matrix = self.get_slots_matrix()
 
@@ -906,7 +917,7 @@ class VoneEnvNodes(VoneEnv):
         super().__init__(**kwargs)
         # action space sizes are maximum corresponding table size for maximum request size
         self.action_space = gym.spaces.Discrete(
-           len(self.generate_node_selection(self.max_vnet_size))
+           len(self.node_selection_dict[self.max_vnet_size])
         )
 
     def select_nodes_paths_slots(self, action):
@@ -914,22 +925,24 @@ class VoneEnvNodes(VoneEnv):
         KSP-FDL or FF"""
         request_size = self.current_VN_capacity.size
         # Get node selection (dependent on number of nodes in request)
-        nodes_selected = get_nth_item(
-            self.generate_node_selection(request_size), action
-        )
+        nodes_selected = self.node_selection_dict[request_size][action]
 
-        (
-            k_path_selected,
-            initial_slot_selected,
-            fail_info
-        ) = select_path_fdl(
-            self,
-            self.topology.topology_graph,
-            self.current_VN_bandwidth,
-            nodes_selected,
-        ) if self.ksp_fdl else select_path_ff(
-            self, nodes_selected
-        )
+        if self.path_selection_heuristic == "fdl":
+            k_path_selected, initial_slot_selected, fail_info = select_path_fdl(
+                self, self.topology.topology_graph, self.current_VN_bandwidth, nodes_selected
+            )
+        elif self.path_selection_heuristic == "ff":
+            k_path_selected, initial_slot_selected, fail_info = select_path_ff(
+                self, nodes_selected
+            )
+        elif self.path_selection_heuristic == "msp_ef":
+            k_path_selected, initial_slot_selected, fail_info = select_path_msp_ef(
+                self, nodes_selected
+            )
+        else:
+            raise ValueError(
+                f"Path selection heuristic {self.path_selection_heuristic} not supported"
+            )
 
         # Assign selections to environment attributes
         self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
@@ -985,20 +998,20 @@ class VoneEnvPaths(VoneEnv):
         )
 
     def observation(self):
-        # Find row in node request table that matches observation
+        # Find row in node request table indexed by random int
         node_request_table = self.vnet_cap_request_dict[self.current_VN_capacity.size]
-        node_act_int = np.where(
-            (node_request_table == self.current_VN_capacity).all(axis=1)
-        )[0]
-        nodes_selected, _ = select_nodes_nsc(
-            self, self.topology.topology_graph
-        )
+        node_act_int = self.rng.randint(0, node_request_table.shape[0] - 1)
+        self.current_VN_capacity = node_request_table[node_act_int]
 
-        # Find row in slot request table that matches observation
+        # Find row in slot request table indexed by random int
         slot_request_table = self.vnet_bw_request_dict[self.current_VN_bandwidth.size]
-        slot_act_int = np.where(
-            (slot_request_table == self.current_VN_bandwidth).all(axis=1)
-        )[0]
+        slot_act_int = self.rng.randint(0, slot_request_table.shape[0] - 1)
+        self.current_VN_bandwidth = slot_request_table[slot_act_int]
+
+        # Select nodes using heuristic
+        nodes_selected, _ = select_nodes(
+            self, self.topology.topology_graph, heuristic=self.node_selection_heuristic
+        )
 
         slots_matrix = self.get_slots_matrix()
 

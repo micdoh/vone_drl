@@ -1,7 +1,7 @@
 project: VONE-DRL
 env_name: vone_Env-v0
 env_args:
-    episode_length: 10000
+    episode_length: 5000
     load: 60
     mean_service_holding_time: 10
     k_paths: 5

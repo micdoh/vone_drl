@@ -1,31 +1,13 @@
-"""
-NSC-KSP-FDL
-method from: https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7718438
-loop num_episodes:
-  reset the_env
-  read the_env
-  loop episode_length:
-      calculate node rank
-      slot the nodes and do node mapping
-      if node mapping successful:
-          loop each link:
-              (in method_2, we process link with larger capacity requirement first)
-              find all possible slot-blocks in k paths
-              calculate FDL_sum for each slot-blocks
-              do link mapping for one link
-      if link mapping successful:
-          give the action to the_env
-"""
-
+import math
+import networkx as nx
 import numpy as np
 import pandas as pd
 import gymnasium as gym
-import random
 import logging
 from copy import deepcopy
 from networkx import Graph
-from typing import Generator
-from util_funcs import get_gen_index
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+
 
 
 logger = logging.getLogger(__name__)
@@ -37,24 +19,92 @@ fail_messages = {
 }
 
 
-def find_blocks(slots: np.ndarray) -> np.ndarray:
-    """Find starting indices of blocks able to accommodate required slots.
+def find_blocks(slots: np.ndarray, size_until_end: bool = True) -> np.ndarray:
+    """
+    Find starting indices of blocks of consecutive unoccupied slots in the input array.
 
     Args:
-        slots: Array of occupied/unoccupied slots on link.
+        slots: A binary numpy array representing the occupied (1) and unoccupied (0) slots on a link.
+        size_until_end: (optional) If True, the output array will contain the remaining slots until the
+            end of the block of consecutive unoccupied slots, starting at the corresponding index in the
+            input array. If False, the output array will contain the length of the block of consecutive
+            unoccupied slots, starting at the corresponding index in the input array.
 
     Returns:
-        Binary array with 1 indicating starting slots of blocks able to fit num_slots.
+        A numpy array of the same length as the input array, where each element indicates the remaining
+        slots until the end of the block of consecutive unoccupied slots, starting at the corresponding
+        index in the input array. If the element is 0, it means that there is no block of unoccupied slots
+        starting at that index.
     """
-    blocks = np.zeros(len(slots))
-    n = 0
-    for m in range(len(slots)):
-        if slots[m] == 1:  # 1 indicates slot is free
-            blocks[n] += 1
-        else:
-            n += 1  # Increment initial block
+    padded_array = np.concatenate(([0], slots, [0]))
+    change_indices = np.where(padded_array[:-1] != padded_array[1:])[0]
 
-    return blocks
+    if len(change_indices) % 2 != 0:
+        change_indices = np.append(change_indices, len(slots))
+
+    lengths = change_indices[1::2] - change_indices[::2]
+
+    output_array = np.zeros_like(slots)
+    for start, length in zip(change_indices[::2], lengths):
+        output_array[start:start + length] = np.arange(length, 0, -1) if size_until_end else length
+    return output_array
+
+
+def count_blocks(slots: np.ndarray) -> int:
+    """
+    Count the number of blocks of consecutive unoccupied slots in the input array.
+
+    Args:
+        slots: A binary numpy array representing the occupied (1) and unoccupied (0) slots on a link.
+
+    Returns:
+        An integer representing the number of blocks of consecutive unoccupied slots in the input array.
+    """
+    padded_array = np.concatenate(([0], slots, [0]))
+    change_indices = np.where(padded_array[:-1] != padded_array[1:])[0]
+
+    if len(change_indices) % 2 != 0:
+        change_indices = np.append(change_indices, len(slots))
+
+    num_blocks = len(change_indices) // 2
+
+    return num_blocks
+
+
+def select_random_action(env: gym.Env, action_index: int = None) -> int or np.ndarray:
+    """Randomly sample the action space.
+
+    Args:
+        env: The environment.
+        action_index: (optional) The index of the multidiscrete action space value to return.
+
+    Return:
+        Action array or indexed value
+    """
+    action = env.action_space.sample()
+    if action_index:
+        return action[action_index]
+    return action
+
+
+def find_consecutive_ones(arr):
+    if not np.any(arr):  # If the input array contains no ones
+        return np.array([0])
+
+    # Add a zero at the beginning and the end to easily detect consecutive sequences
+    padded_arr = np.concatenate(([0], arr, [0]))
+
+    # Find the indices of ones and compute differences between consecutive indices
+    ones_indices = np.where(padded_arr == 1)[0]
+    diff_indices = np.concatenate((np.diff(ones_indices), np.array([0])))
+
+    # Identify the end of consecutive sequences by finding where the difference is not 1
+    end_of_sequences = np.where(diff_indices != 1)[0]
+
+    # Calculate the lengths of consecutive sequences
+    lengths = np.diff(np.concatenate(([0], end_of_sequences + 1)))
+
+    return lengths
 
 
 def calculate_path_frag(topology: Graph, path: [int]) -> int:
@@ -76,16 +126,15 @@ def calculate_path_frag(topology: Graph, path: [int]) -> int:
         slots = topology.edges[path[i], path[i + 1]]["slots"]
         n_slots = sum(slots)
         if n_slots == 0:
-            return 1000
-        block_indices = find_blocks(slots)
-        n_blocks = len(np.where(block_indices > 0)[0])
+            return 1e6  # Large number
+        n_blocks = count_blocks(slots)
         frag_degree = n_blocks / n_slots
         frag_sum += frag_degree
 
     return frag_sum
 
 
-def rank_substrate_nsc(topology: Graph) -> [(int, int, int)]:
+def rank_nodes_nsc(topology: Graph) -> [(int, int, int)]:
     """Rank substrate nodes by node switching capacity (NSC).
 
     The NSC of a node is (node capacity * node degree * sum of vacant FSUs on ports)
@@ -119,73 +168,31 @@ def rank_substrate_nsc(topology: Graph) -> [(int, int, int)]:
     return rank_nsc
 
 
-def rank_vnet_node_requirements(node_request) -> [(int, int, int)]:
+def rank_v_nodes_nsc(node_request, adjacency_list=((0, 1), (1, 2), (2, 0))) -> [(int, int, int)]:
     """Rank virtual nodes by node switching capacity (NSC)
-
-    # TODO - N.B. This function only works for 3-node ring virtual topology
 
     Args:
         node_request: Request virtual node resource capacities.
+        adjacency_list: List of tuples defining virtual network topology.
 
     Returns:
-        Sorted list of nodes and metrics, in descending order of NSC
+        List of tuples of (NSC, node index, node capacity), ranked by NSC
     """
-    rank_n_v = []
+    rank = {}
     for n, cap in enumerate(node_request):
-        rank_n_v.append((2 * cap, n, cap))
-    rank_n_v.sort(reverse=True)
-    return rank_n_v
-
-
-def select_nodes_nsc(env: gym.Env, topology: Graph) -> ([int], dict):
-    """Return best node choice based on node switching capacity.
-
-    Args:
-        env: Gym environment.
-        topology: Substrate network graph.
-
-    Returns:
-        selected_nodes: List of node indices that have been selected
-        node_mapping_success: Bool to indicate successful mapping
-    """
-    fail_info = fail_messages["node_mapping"]
-    request_size = env.current_VN_capacity.size
-
-    selected_nodes = np.zeros(request_size, dtype=int)
-    # 1. Rank substrate nodes in descending order of node switching capacity (NSC)
-    rank_n_s = rank_substrate_nsc(topology)
-    # 2. Rank virtual nodes in descending order of required (capacity x port count)
-    rank_n_v = rank_vnet_node_requirements(env.current_VN_capacity)
-
-    # Check that substrate nodes can meet virtual node requirements
-    successful_nodes = 0
-    for n, node_request in enumerate(rank_n_v):
-        substrate_capacity = rank_n_s[n][2]
-        requested_capacity = node_request[2]
-        if substrate_capacity >= requested_capacity:
-            selected_nodes[rank_n_v[n][1]] = rank_n_s[n][1]
-            successful_nodes += 1
-
-    # Check for success and clean-up the action
-    if successful_nodes == request_size:
-        fail_info = {}
-
-    # Sometimes node without sufficient capacity is assigned (even tho one exists)
-    # because NSC is calculated based on link capacity * node capacity.
-    # So, to make sure there are no duplicate zeroes, we add this step.
-    elif np.unique(selected_nodes).size != request_size:
-        # Check unique nodes assigned
-        selected_nodes = np.array([n for n in range(request_size)])
-
-    return selected_nodes, fail_info
+        rank[n] = [0, cap]
+        for adj in adjacency_list:
+            if n in adj:
+                rank[n][0] += cap
+    rank = [(nsc[0], node, nsc[1]) for node, nsc in rank.items()]
+    rank.sort(reverse=True)
+    return rank
 
 
 def select_path_fdl(
-    env: gym.Env,
-    topology_0: Graph,
-    vnet_bandwidth: [int],
-    selected_nodes: [int],
-    k_paths_preselected: [[int]] = None,
+        env: gym.Env,
+        selected_nodes: [int],
+        adjacency_list: tuple = ((0, 1), (1, 2), (2, 0))
 ) -> ([int], [int], bool):
     """Select k-path and slots to use with fragmentation degree loss (FDL) method.
 
@@ -203,22 +210,20 @@ def select_path_fdl(
         initial_slots_selected: List of selected initial slots.
         fail_info: Dict containing comment on failure mode.
     """
+    # TODO - Update this to use an adjacency list to get request size
     fail_info = {}
-    topology = deepcopy(topology_0)
-    request_size = env.current_VN_capacity.size
+    topology = deepcopy(env.topology.topology_graph)
+    vnet_bandwidth = env.current_VN_bandwidth
+    request_size = len(adjacency_list)
     k_paths_selected = np.zeros(request_size, dtype=int)
     initial_slots_selected = np.zeros(request_size, dtype=int)
-    bw_request_ranked = []
 
     # Rank request in descending order of bandwidth
-    for i in range(request_size - 1):
-        bw_request_ranked.append(
-            (vnet_bandwidth[i], selected_nodes[i], selected_nodes[i + 1], i)
-        )
-    bw_request_ranked.append(
-        (vnet_bandwidth[i + 1], selected_nodes[0], selected_nodes[i + 1], i + 1)
+    bw_request_ranked = sorted(
+        [(vnet_bandwidth[i], selected_nodes[i], selected_nodes[i + 1], i) for i in range(request_size - 1)] +
+        [(vnet_bandwidth[-1], selected_nodes[0], selected_nodes[-1], request_size - 1)],
+        reverse=True
     )
-    bw_request_ranked.sort(reverse=True)
 
     # Loop though each part of request
     for i in range(request_size):
@@ -226,37 +231,30 @@ def select_path_fdl(
         frag_degree_loss_rank = []  # To be populated with candidate path-slots
         bw_req, source, destination, action_index = bw_request_ranked[i]
 
-        all_paths = env.get_k_shortest_paths(topology, source, destination, env.k_paths)
-
-        # If paths already chosen (optional), then only let all paths contain those
-        all_paths = [all_paths[k_paths_preselected[i]]] if k_paths_preselected else all_paths
+        all_paths = env.link_selection_dict[(source, destination)]
 
         # look into single path
-        for j in range(len(all_paths)):
+        for k in range(len(all_paths)):
 
-            j = k_paths_preselected[i] if k_paths_preselected else j  # j must equal the k-index of the path
-            path = all_paths[0] if k_paths_preselected else all_paths[j]
+            path = all_paths[k]
 
-            slots_in_path = []
-            for k in range(len(path) - 1):
-                slots_in_path.append(topology.edges[path[k], path[k + 1]]["slots"])
+            path_slots = env.get_path_slots(path, topology)
 
-            available_slots_in_path = slots_in_path[0]
-            for k in range(len(slots_in_path)):
-                available_slots_in_path = available_slots_in_path & slots_in_path[k]
+            blocks_in_path = find_blocks(path_slots)
 
-            blocks_in_path = find_blocks(available_slots_in_path)
             initial_slots = []
-            for k in range(len(blocks_in_path)):
-                if blocks_in_path[k] == bw_req:
+            m = 0
+            while m < (len(blocks_in_path)):
+                block_size = blocks_in_path[m]
+                if block_size >= bw_req:
                     # Add initial slot of block
-                    initial_slots.append(k + sum(blocks_in_path[0:k]))
-                elif blocks_in_path[k] > bw_req:
-                    # Add initial slot of block AND final slot of block minus request size
-                    initial_slots.append(k + sum(blocks_in_path[0:k]))
-                    initial_slots.append(
-                        k + sum(blocks_in_path[0:k]) + blocks_in_path[k] - bw_req
-                    )
+                    initial_slots.append(m)
+                    if block_size > bw_req:
+                        # Add final slot of block minus request size
+                        initial_slots.append(m + block_size - bw_req)
+                    m += block_size
+                else:
+                    m += 1
 
             # If no possible slots, try next path
             if len(initial_slots) == 0:
@@ -267,25 +265,21 @@ def select_path_fdl(
             initial_slots = np.array(initial_slots, dtype=int)
 
             # Calculate frag. degree of path after each possible assignment of slots
-            for k in range(len(initial_slots)):
+            for j in range(len(initial_slots)):
                 # Make copy of topology each time before assigning slots
                 g = deepcopy(topology)
 
                 # Assign slots on each link of path
                 for l in range(len(path) - 1):
                     g.edges[path[l], path[l + 1]]["slots"][
-                        initial_slots[k]: initial_slots[k] + bw_req
+                        initial_slots[j]: initial_slots[j] + bw_req
                     ] -= 1
 
                 # Calculate frag. degree after assigning slots and hence FDL
                 frag_after = calculate_path_frag(g, path)
                 frag_degree_loss_rank.append(
-                    (frag_after - frag_before, j, initial_slots[k])
+                    (frag_after - frag_before, k, initial_slots[j])
                 )
-
-            # Only need to check one path if preselected, so break
-            if k_paths_preselected:
-                break
 
         # If no paths possible, mapping fails
         if len(frag_degree_loss_rank) == 0:
@@ -297,22 +291,21 @@ def select_path_fdl(
         k_paths_selected[action_index] = frag_degree_loss_rank[0][1]
         initial_slots_selected[action_index] = frag_degree_loss_rank[0][2]
 
-        # Update slots in topology clone to inform decision for next index of the request
-        path_selected = (
-            all_paths[0] if k_paths_preselected else all_paths[k_paths_selected[action_index]]
-        )
-        for j in range(len(path_selected) - 1):
-            topology.edges[path_selected[j], path_selected[j + 1]]["slots"][
-                initial_slots_selected[action_index]: initial_slots_selected[action_index]
-                + bw_req
-            ] -= 1
-
-    k_paths_selected = k_paths_preselected if k_paths_preselected else k_paths_selected
+        if i == request_size - 1:
+            return k_paths_selected, initial_slots_selected, fail_info
+        else:
+            # Update slots in topology clone to inform decision for next index of the request
+            path_selected = all_paths[k_paths_selected[action_index]]
+            for j in range(len(path_selected) - 1):
+                slots = topology.edges[path_selected[j], path_selected[j + 1]]["slots"]
+                topology.edges[path_selected[j], path_selected[j + 1]]["slots"][
+                    initial_slots_selected[action_index]: initial_slots_selected[action_index] + bw_req
+                ] -= 1
 
     return k_paths_selected, initial_slots_selected, fail_info
 
 
-def select_path_ff(env: gym.Env, nodes_selected: [int]):
+def select_path_ff(env: gym.Env, nodes_selected: [int], adjacency_list = ((0, 1), (1, 2), (2, 0))):
     """kSP-FF
 
     Args:
@@ -328,40 +321,321 @@ def select_path_ff(env: gym.Env, nodes_selected: [int]):
     fail_info = {}
     k_paths_selected = []
     initial_slots_selected = []
-    request_size = env.current_VN_capacity.size
+    topology = deepcopy(env.topology.topology_graph)
+    # Retrieve all k_paths for the selected nodes
+    path_dict = {k: env.get_links_from_selection(nodes_selected, [k]*len(adjacency_list), adjacency_list=adjacency_list) for k in range(env.k_paths)}
     # Loop through requests
-    for i_req in range(request_size):
+    for i_req, adj in enumerate(adjacency_list):
+
+        bw = env.current_VN_bandwidth[i_req]
 
         current_path_free = False
 
         # Check each k-path
         for k in range(env.k_paths):
 
+            path = path_dict[k][i_req]
+
             if current_path_free:
                 break
 
-            # Get Links
-            path_list = env.get_links_from_selection(nodes_selected, [k]*request_size)
-
-            for i_slot in range(env.num_slots - env.current_VN_bandwidth[i_req]):
+            for i_slot in range(env.num_slots - bw):
                 # Check each slot in turn to see if free
-                current_path_free, fail_info = env.is_path_free(
-                    path_list[i_req], i_slot, env.current_VN_bandwidth[i_req]
-                )
+                current_path_free, fail_info = env.is_path_free(topology, path, i_slot, bw)
 
                 if current_path_free:
                     k_paths_selected.append(k)
                     initial_slots_selected.append(i_slot)
+                    # Assign slots on each link of path on topology copy
+                    for l in range(len(path) - 1):
+                        topology.edges[path[l], path[l + 1]]["slots"][
+                        i_slot: i_slot + bw
+                        ] -= 1
                     break
 
         if not current_path_free:
-            k_paths_selected.append(0)
-            initial_slots_selected.append(0)
+            k_paths_selected = [0] * len(adjacency_list)
+            initial_slots_selected = [0] * len(adjacency_list)
+            break
 
     return k_paths_selected, initial_slots_selected, fail_info
 
 
-def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
+def select_path_msp_ef(env: gym.Env, nodes_selected: [int], adjacency_list = ((0, 1), (1, 2), (2, 0))):
+    """Modified shortest path exact-fit.
+
+    Args:
+        env: Gym environment.
+        nodes_selected: Indices of nodes that comprise virtual network.
+
+    Returns:
+        k_path_selected: List of k-path indices.
+        initial_slot_selected: List of starting slot indices for each path.
+        fail_info: Dict containing comment on failure mode.
+    """
+    k_paths_selected = []
+    initial_slots_selected = []
+    topology = deepcopy(env.topology.topology_graph)
+    # Retrieve all k_paths for the selected nodes
+    path_dict = {k: env.get_links_from_selection(nodes_selected, [k]*len(adjacency_list), adjacency_list=adjacency_list) for k in range(env.k_paths)}
+    # Loop through requests
+    for i_req, adj in enumerate(adjacency_list):
+
+        bw = env.current_VN_bandwidth[i_req]
+
+        tightest_path_fit, fail_info = calc_shortest_weighted_path(topology, path_dict, i_req, bw)
+        #tightest_path_fit, fail_info = calc_tightest_mf_path_weight(env, topology, path_dict, i_req, bw)
+
+        k_paths_selected.append(tightest_path_fit)
+
+        path = path_dict[tightest_path_fit][i_req]
+
+        tightest_slot_fit, fail_info = find_tightest_slot(env, topology, path, bw)
+
+        initial_slots_selected.append(tightest_slot_fit)
+
+        if fail_info:
+            k_paths_selected = [0] * len(adjacency_list)
+            initial_slots_selected = [0] * len(adjacency_list)
+            break
+
+        print(f"k_path: {tightest_path_fit}")
+        print(f"slot: {tightest_slot_fit}")
+        print(f"bw: {bw}")
+        print(f"path: {path}")
+
+        # Assign slots on each link of path on topology copy
+        for l in range(len(path) - 1):
+            slots = topology.edges[path[l], path[l + 1]]["slots"]
+            print(f"Slots: {slots}")
+            topology.edges[path[l], path[l + 1]]["slots"][
+            tightest_slot_fit: tightest_slot_fit + bw
+            ] -= 1
+            print(f"Slots after: {topology.edges[path[l], path[l + 1]]['slots']}")
+
+    return k_paths_selected, initial_slots_selected, fail_info
+
+
+def calc_tightest_mf_path_weight(env, graph, path_dict, i_req, bw):
+    # Check each k-path
+    weights = []
+    for k in range(env.k_paths):
+        path = path_dict[k][i_req]
+        path_slots = env.get_path_slots(path, graph)
+        min_block_size = min(find_consecutive_ones(path_slots))
+        weight = max(((min_block_size - bw) / max(min_block_size, 1)) + 1e-5, 0)
+        weight = 1e6 if weight == 0 else weight
+        weights.append(weight*(len(path)-1))
+    tightest_fit_index = weights.index(min(weights))
+    print(f"Path {k}: {path}, weights: {weights}, tightest fit: {tightest_fit_index}")
+    fail_info = fail_messages["path_mapping"] if all(x == 0 for x in weights) else {}
+    return tightest_fit_index, fail_info
+
+
+def calc_shortest_weighted_path(graph, path_dict, i_req, bw):
+    min_weight = float('inf')
+    shortest_path = None
+    for k, paths in path_dict.items():
+        path = paths[i_req]
+        weights = []
+        edges = [(path[i], path[i+1]) for i in range(len(path)-1)]
+        for edge in edges:
+            slots = graph.edges[edge[0], edge[1]]["slots"]
+            min_block_size = min(find_consecutive_ones(slots))
+            weight = max(((min_block_size - bw) / max(min_block_size, 1)) + 1e-5, 0)
+            weight = 1e6 if weight == 0 else weight
+            weights.append(weight)
+        path_weight = sum(weights)
+        if path_weight < min_weight:
+            min_weight = path_weight
+            shortest_path = k
+            fail_info = fail_messages["path_mapping"] if all(x == 0 for x in weights) else {}
+        print(f"Path {k}: {path}, weights: {weights}, path_weight: {path_weight}, min_weight: {min_weight}")
+
+    return shortest_path, fail_info
+
+def find_nth_block_index(slots, n):
+    occurrences = np.where(slots >= 1)[0]
+    return occurrences[n - 1] if len(occurrences) >= n else -1
+
+
+def find_tightest_slot(env, graph, path, bw):
+    path_slots = env.get_path_slots(path, graph)
+    print(f"path_slots: {path_slots}")
+    block_sizes = find_blocks(path_slots, size_until_end=False)
+    weights = np.maximum(((block_sizes - bw) / np.maximum(block_sizes, 1)) + 1e-5, 0)
+    weights = np.where(weights == 0, 1e6, weights)
+    tightest_fit_index = np.argmin(weights)
+    print(f"block_sizes: {block_sizes}, weights: {weights}, tightest_fit_index: {tightest_fit_index}")
+    fail_info = fail_messages["slot_mapping"] if all(x == 0 for x in weights) else {}
+    return int(tightest_fit_index), fail_info
+
+
+def rank_v_nodes_lrc(node_request, bw_request, adjacency_list=((0, 1), (1, 2), (2, 0))):
+    """Calculate the Local Resource Capacity of a node.
+
+    Args:
+        graph: NetworkX graph.
+        node: Node to calculate LRC of.
+        bw_requests: Bandwidth requests of all virtual links.
+
+    Returns:
+        lrc: Local Resource Capacity of node.
+    """
+    rank = {}
+    for n, cap in enumerate(node_request):
+        rank[n] = [0, cap]
+        for bw, adj in zip(bw_request, adjacency_list):
+            if n in adj:
+                rank[n][0] += cap*bw
+    rank = [(lrc[0], node, lrc[1]) for node, lrc in rank.items()]
+    rank.sort(reverse=True)
+    return rank
+
+
+def rank_nodes_calrc(graph, bw_request):
+    """Calculate the Consecutiveness-Aware Local Resource Capacity of a node.
+
+    Args:
+        graph: NetworkX graph.
+        node: Node to calculate LRC of.
+        bw_requests: Bandwidth requests of all virtual links.
+
+    Returns:
+        ranking: List of tuples of (node_index, calrc) i.e. ranking of substrate nodes
+        based on Consecutiveness-Aware Local Resource Capacity.
+    """
+    rank = []
+    bw_request = set(bw_request)
+    for node in graph.nodes:
+        calrc = 0
+        capacity = graph.nodes[node]["capacity"]
+        for _, _, edge_data in graph.edges(node, data=True):
+            MSBC_sizes = find_consecutive_ones(edge_data["slots"])
+            for i in bw_request:
+                calrc += np.sum(MSBC_sizes - i + 1)
+        rank.append((capacity * calrc, node, capacity))
+    rank.sort(reverse=True)
+    return rank
+
+
+def calc_link_asc(link):
+    """Calculate the continuity degree of available spectrum of a link.
+
+    Args:
+        link: Link to calculate ASC of.
+
+    Returns:
+        asc: Continuity degree of available spectrum of a link.
+    """
+    slots = link["slots"]
+    available_slot_sum = np.sum(slots)
+    num_slots = len(slots)
+    num_blocks = count_blocks(slots)
+    return available_slot_sum / (num_slots * num_blocks)
+
+
+def rank_nodes_mf(graph, betweenness):
+    """Rank nodes based on matching factor.
+
+    Args:
+        graph: NetworkX graph.
+        betweenness: Betweenness centrality of nodes.
+
+    Returns:
+        ranking: List of tuples of (mf, node_index, capacity) i.e. ranking of substrate nodes
+    """
+    rank = []
+    for node in graph.nodes:
+        capacity = graph.nodes[node]["capacity"]
+        cap_factor = (capacity / sum(graph.nodes[n]["capacity"] for n in graph.nodes))
+        asc_factor = sum([calc_link_asc(link) for _, _, link in graph.edges(node, data=True)]) / \
+                     sum([calc_link_asc(link) for _, _, link in graph.edges(data=True)])
+        mrcc = cap_factor * asc_factor
+        mf = mrcc * math.exp(-betweenness[node]+1)
+        rank.append((mf, node, capacity))
+    rank.sort(reverse=True)
+    print(f"Ranking snodes: {rank}")
+    return rank
+
+
+def rank_v_nodes_mrr(cap_request, bw_request, adjacency_list=((0, 1), (1, 2), (2, 0))):
+    """Calculate the multidimensional resources requirement of virtual nodes and rank them.
+
+    Args:
+        cap_request: List of capacity requests of virtual nodes.
+        bw_request: List of bandwidth requests of virtual links.
+        adjacency_list: List of tuples of adjacent virtual nodes.
+
+    Returns:
+        ranking: List of tuples of (mrr, node_index, capacity) i.e. ranking of virtual nodes
+    """
+    rank = {}
+    for n, cap in enumerate(cap_request):
+        rank[n] = [0, cap]
+        adj_bw_requests = sum([bw_request[j] for j, adj in enumerate(adjacency_list) if n in adj])
+        rank[n][0] = (cap/np.sum(cap_request)) * (adj_bw_requests / np.sum(bw_request))
+    rank = [(mrr[0], node, mrr[1]) for node, mrr in rank.items()]
+    rank.sort(reverse=True)
+    print(f"Ranking vnodes: {rank}")
+    return rank
+
+
+def select_nodes(env: gym.Env, topology: Graph, heuristic: str = "nsc", betweenness: dict = {}) -> ([int], dict):
+    """Select nodes for mapping based on a heuristic.
+
+    Args:
+        env: Gym environment.
+        topology: Substrate network graph.
+        heuristic: Heuristic to use for node selection.
+        betweenness: Betweenness centrality of nodes (optional)
+
+    Returns:
+        selected_nodes: List of node indices that have been selected
+        node_mapping_success: Bool to indicate successful mapping
+    """
+    fail_info = fail_messages["node_mapping"]
+    request_size = env.current_VN_capacity.size
+
+    selected_nodes = np.zeros(request_size, dtype=int)
+
+    if heuristic == "nsc":
+        rank_n_s = rank_nodes_nsc(topology)
+        rank_n_v = rank_v_nodes_nsc(env.current_VN_capacity)
+    elif heuristic == "calrc":
+        rank_n_s = rank_nodes_calrc(topology, env.current_VN_bandwidth)
+        rank_n_v = rank_v_nodes_lrc(env.current_VN_capacity, env.current_VN_bandwidth)
+    elif heuristic == "tmr":
+        rank_n_s = rank_nodes_mf(topology, betweenness)
+        rank_n_v = rank_v_nodes_mrr(env.current_VN_capacity, env.current_VN_bandwidth)
+    else:
+        raise ValueError(f"Heuristic '{heuristic}' not supported.")
+
+    # Check that substrate nodes can meet virtual node requirements
+    successful_nodes = 0
+    for v_node in rank_n_v:
+        for i, s_node in enumerate(rank_n_s):
+            substrate_capacity = s_node[2]
+            requested_capacity = v_node[2]
+            if substrate_capacity >= requested_capacity:
+                selected_nodes[v_node[1]] = s_node[1]
+                successful_nodes += 1
+                rank_n_s.pop(i)  # Remove selected node from list
+                break
+
+    # Check for success and clean-up the action
+    if successful_nodes == request_size:
+        fail_info = {}
+
+    # Sometimes no substrate node assigned to a virtual node.
+    # So, to make sure there are no duplicate zeroes, we add this step.
+    elif np.unique(selected_nodes).size != request_size:
+        # Check unique nodes assigned
+        selected_nodes = np.array([n for n in range(request_size)])
+
+    return selected_nodes, fail_info
+
+def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic: str = "ff", combined: bool = True):
     """
 
     Args:
@@ -373,32 +647,33 @@ def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
         results: dict of load, reward, std
     """
     observation = the_env.reset()
-
-    topology_0, _ = the_env.render()
-    topology = deepcopy(topology_0)
+    the_env = the_env.envs[0] if isinstance(the_env, DummyVecEnv or SubprocVecEnv) else the_env
     info = {}
     info_list = []
-
     step = 0
+    betweenness = nx.betweenness_centrality(the_env.topology.topology_graph) if node_heuristic == "tmr" else None
 
     while step < the_env.episode_length:
         step += 1
+        topology = deepcopy(the_env.topology.topology_graph)
         request_size = the_env.current_VN_capacity.size
         node_table = the_env.node_selection_dict[request_size]
         path_table = the_env.path_selection_dict[request_size]
         slot_table = the_env.slot_selection_dict[request_size]
 
-        # Get node mapping by ranking according to Node Switching Capacity
-        action_node, fail_info = select_nodes_nsc(the_env, topology)
-
-        # Get the requested bandwidth between nodes
-        vnet_bandwidth = the_env.current_VN_bandwidth
+        # Get node selection
+        action_node, fail_info = select_nodes(the_env, topology, node_heuristic, betweenness=betweenness)
 
         if not fail_info:
 
-            action_k_path, action_initial_slots, fail_info = select_path_fdl(
-                the_env, topology, vnet_bandwidth, action_node
-            )
+            if path_heuristic == "ff":
+                action_k_path, action_initial_slots, fail_info = select_path_ff(the_env, action_node)
+            elif path_heuristic == "fdl":
+                action_k_path, action_initial_slots, fail_info = select_path_fdl(the_env, action_node)
+            elif path_heuristic == "msp_ef":
+                action_k_path, action_initial_slots, fail_info = select_path_msp_ef(the_env, action_node)
+            else:
+                raise ValueError(f"Path heuristic '{path_heuristic}' not supported.")
 
             # The environment requires actions to be presented in the same integer format as the agent uses.
             # Store those integers here
@@ -427,8 +702,6 @@ def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
         observation, reward, done, _, info = the_env.step(
             action_ints
         )
-        topology_0, _ = the_env.render()
-        topology = deepcopy(topology_0)
         info_list.append(info)
 
     logger.info(info)
@@ -438,20 +711,4 @@ def nsc_ksp_fdl(the_env: gym.Env, combined: bool = True):
     results = {"load": the_env.load, "reward": df["reward"].mean(), "std": df["reward"].std()}
     logger.info(results)
 
-    return results
-
-
-def select_random_action(env: gym.Env, action_index: int = None) -> int or np.ndarray:
-    """Randomly sample the action space.
-
-    Args:
-        env: The environment.
-        action_index: (optional) The index of the multidiscrete action space value to return.
-
-    Return:
-        Action array or indexed value
-    """
-    action = env.action_space.sample()
-    if action_index:
-        return action[action_index]
-    return action
+    return results, df

@@ -191,6 +191,11 @@ def parse_args():
         default="./runs",
         help="Parent directory for all log directories",
     )
+    parser.add_argument(
+        "--use_afterstate",
+        action="store_true",
+        help="Use afterstate as input to value function",
+    )
 
     return parser.parse_args()
 

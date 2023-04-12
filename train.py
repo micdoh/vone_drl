@@ -62,6 +62,7 @@ if __name__ == "__main__":
     conf["env_args"]["reward_success"] = args.reward_success
     conf["env_args"]["reward_failure"] = args.reward_failure
     conf["env_args"]["reject_action"] = args.reject_action
+    conf["env_args"]["use_afterstate"] = args.use_afterstate
     # Setup environment
     env = [
         make_env(conf["env_name"], seed=i, **conf["env_args"])
@@ -101,6 +102,7 @@ if __name__ == "__main__":
         clip_range_vf=choose_schedule(args.clip_range_vf_schedule, args.clip_range_vf),
         n_epochs=args.n_epochs,
         ent_coef=args.ent_coef,
+        use_afterstate=args.use_afterstate,
     )
     if args.multistep_masking:
         agent_kwargs.update(

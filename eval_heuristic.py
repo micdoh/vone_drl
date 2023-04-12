@@ -1,5 +1,5 @@
 import gymnasium as gym
-from heuristics import nsc_ksp_fdl
+from heuristics import *
 import pandas as pd
 import numpy as np
 import os
@@ -27,6 +27,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--env_file", type=str, help="Environment config file"
     )
+    parser.add_argument(
+        "--node_heuristic", type=str, help="Node heuristic"
+    )
+    parser.add_argument(
+        "--path_heuristic", type=str, help="Path heuristic"
+    )
     args = parser.parse_args()
 
     conf = yaml.safe_load(Path(args.env_file).read_text())
@@ -46,7 +52,7 @@ if __name__ == "__main__":
         for ep in range(args.num_episodes):
 
             obs = the_env.reset()
-            result = nsc_ksp_fdl(the_env)
+            result, timestep_info_df = run_heuristic(the_env, node_heuristic=args.node_heuristic, path_heuristic=args.path_heuristic)
             results.append(result)
 
         df = pd.DataFrame(results)

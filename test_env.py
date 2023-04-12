@@ -11,6 +11,7 @@ from sb3_contrib import MaskablePPO
 import env.envs.VoneEnv as VoneEnv
 from heuristics import *
 from util_funcs import *
+from plot import *
 
 
 @pytest.fixture
@@ -25,13 +26,24 @@ def setup_vone_env():
 
 
 @pytest.fixture
-def setup_vone_env_100_slots():
+def setup_vone_env_100_slots_multithread():
     conf = yaml.safe_load(Path("./test/agent_combined_100_slots.yaml").read_text())
     env = [
         make_env(conf["env_name"], seed=i, **conf["env_args"])
         for i in range(1)
     ]
     env = SubprocVecEnv(env, start_method="fork")
+    return env
+
+
+@pytest.fixture
+def setup_vone_env_100_slots():
+    conf = yaml.safe_load(Path("./test/agent_combined_100_slots.yaml").read_text())
+    env = [
+        make_env(conf["env_name"], seed=i, **conf["env_args"])
+        for i in range(1)
+    ]
+    env = DummyVecEnv(env)
     return env
 
 
@@ -240,4 +252,80 @@ def test_env_agent_masked(setup_env_agent_masked):
         action = env.action_space.sample()
         obs, reward, done, info = env.step(action)
         action_mask = env.action_masks()
+    assert 1 == 1
+
+
+def test_calrc_ksp_ff(setup_vone_env):
+    env = setup_vone_env
+    results, df = run_heuristic(env, "calrc", "ff")
+    assert 1 == 1
+
+def test_calrc_ksp_ff_100_slots(setup_vone_env_100_slots):
+    env = setup_vone_env_100_slots
+    results, df = run_heuristic(env, "calrc", "ff")
+    assert 1 == 1
+
+
+def test_calrc_ksp_fdl_100_slots(setup_vone_env_100_slots):
+    env = setup_vone_env_100_slots
+    results, df = run_heuristic(env, "calrc", "fdl")
+    assert 1 == 1
+
+
+def test_nsc_ksp_fdl_100_slots(setup_vone_env_100_slots):
+    env = setup_vone_env_100_slots
+    results, df = run_heuristic(env, "nsc", "fdl")
+    assert 1 == 1
+
+
+def test_nsc_ksp_ff_100_slots(setup_vone_env_100_slots):
+    env = setup_vone_env_100_slots
+    results, df = run_heuristic(env, "nsc", "ff")
+    assert 1 == 1
+
+
+def test_tmr_msp_ef_100_slots(setup_vone_env_100_slots):
+    env = setup_vone_env_100_slots
+    results, df = run_heuristic(env, "tmr", "msp_ef")
+    assert 1 == 1
+
+
+def test_tmr_ksp_ff_100_slots(setup_vone_env_100_slots):
+    env = setup_vone_env_100_slots
+    results, df = run_heuristic(env, "tmr", "ff")
+    assert 1 == 1
+
+
+def test_nsc_tmr_msp_ef_4_node(setup_vone_env_4node):
+    env = setup_vone_env_4node
+    results, df = run_heuristic(env, "tmr", "msp_ef")
+    assert 1 == 1
+
+def test_nsc_ksp_ff_4_node(setup_vone_env_4node):
+    env = setup_vone_env_4node
+    results, df = run_heuristic(env, "nsc", "ff")
+    assert 1 == 1
+
+
+def test_visualise_graph(setup_vone_env):
+    node_locations = {
+        0: (-122.3321, 47.6062),  # Seattle, WA
+        1: (-122.4194, 37.7749),  # San Francisco, CA
+        2: (-118.2437, 34.0522),  # Los Angeles, CA
+        3: (-104.9903, 39.7392),  # Denver, CO
+        4: (-95.3698, 29.7604),  # Houston, TX
+        5: (-94.5786, 39.0997),  # Kansas City, MO
+        6: (-87.6298, 41.8781),  # Chicago, IL
+        7: (-86.1581, 39.7684),  # Indianapolis, IN
+        8: (-84.3880, 33.7490),  # Atlanta, GA
+        9: (-77.0369, 38.9072),  # Washington, DC
+        10: (-74.0060, 40.7128),  # New York City, NY
+        11: (-76.4966, 42.4439),  # Ithaca, NY
+        12: (-79.9959, 40.4406),  # Pittsburgh, PA
+        13: (-83.7430, 42.2808)  # Ann Arbor, MI
+    }
+    env = setup_vone_env
+    G = env.envs[0].topology.topology_graph
+
+    img = visualize_graph(G, node_locations)
     assert 1 == 1

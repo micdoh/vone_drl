@@ -3,7 +3,7 @@ env_name: vone_Env-v0
 log_dir: /Users/michaeldoherty/git/vone_drl/runs
 save_model_dir: /Users/michaeldoherty/git/vone_drl/runs/best_model
 env_args:
-    episode_length: 5000
+    episode_length: 500
     load: 6
     mean_service_holding_time: 10
     k_paths: 5
