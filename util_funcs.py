@@ -25,7 +25,7 @@ def parse_args():
         help="Learning rate for optimisation",
     )
     parser.add_argument(
-        "--gamma", default=0.6, type=float, help="Discount factor"
+        "--gamma", default=0.99, type=float, help="Discount factor"
     )
     parser.add_argument(
         "--clip_range",
