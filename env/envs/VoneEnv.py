@@ -131,7 +131,7 @@ class VoneEnv(gym.Env):
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
-        self.mean_service_inter_arrival_time = 0
+        self.arrival_rate = 0
         self.set_load(load, mean_service_holding_time)
 
         self.k_paths = k_paths
@@ -609,7 +609,6 @@ class VoneEnv(gym.Env):
 
         afterstate = self.observation(afterstate=True) if self.use_afterstate else None
 
-        self.set_load(self.load, self.mean_service_holding_time)
         self.traffic_generator()
         reward = self.reward()
         self.total_reward += reward
@@ -782,10 +781,9 @@ class VoneEnv(gym.Env):
         self.map_service_links(service, self.topology.topology_graph)
 
     def set_load(self, load, mean_service_holding_time):
-        """Load = Hold time / inter-arrival time"""
-        self.mean_service_inter_arrival_time = 1 / float(
-            load / float(mean_service_holding_time)
-        )
+        """Load = Hold time / mean inter-arrival time
+        Arrival rate = 1 / mean inter-arrival time"""
+        self.arrival_rate = float(load / float(mean_service_holding_time))
 
     def release_service(self, service: Service):
         # nodes release
@@ -811,9 +809,7 @@ class VoneEnv(gym.Env):
         Method from https://github.com/carlosnatalino/optical-rl-gym/blob/
         fc9a82244602d8efab749fe4391c7ddb4b05dfe7/optical_rl_gym/envs/rmsa_env.py#L280
         """
-        at = self.current_time + self.rng.expovariate(
-            1 / self.mean_service_inter_arrival_time
-        )
+        at = self.current_time + self.rng.expovariate(self.arrival_rate)
         self.current_time = at
 
         while len(self.allocated_Service) > 0:
