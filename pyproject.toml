@@ -27,7 +27,7 @@ black = "^22.12.0"
 pytest = "^7.2.0"
 jupyter = "^1.0.0"
 ray = {version = "^2.1.0", markers = "sys_platform != 'win64'"}
-stable-baselines3 = {git = "https://github.com/DLR-RM/stable-baselines3", branch = "feat/gymnasium-support"}
+stable-baselines3 = {git = "https://github.com/DLR-RM/stable-baselines3"}
 sb3-contrib = {git = "https://gitlab.ee.ucl.ac.uk/ong/networks/virtual-optical-network-embedding/stable-baselines3-contrib-multistep-masking.git"}
 # Optional dependencies (for GPU platform only). Install with poetry install --extras cuda
 #torch = [
