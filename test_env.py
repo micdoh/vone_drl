@@ -12,6 +12,7 @@ import env.envs.VoneEnv as VoneEnv
 from heuristics import *
 from util_funcs import *
 from plot import *
+from estimate_bounds import *
 
 
 @pytest.fixture
@@ -307,6 +308,7 @@ def test_nsc_ksp_ff_4_node(setup_vone_env_4node):
     assert 1 == 1
 
 
+
 def test_visualise_graph(setup_vone_env):
     node_locations = {
         0: (-122.3321, 47.6062),  # Seattle, WA
@@ -328,4 +330,13 @@ def test_visualise_graph(setup_vone_env):
     G = env.envs[0].topology.topology_graph
 
     img = visualize_graph(G, node_locations)
+    assert 1 == 1
+
+
+def test_blocking_prob(setup_vone_env_100_slots):
+    env = setup_vone_env_100_slots
+    traffic_load = 60
+    avg_num_v_nets = rough_analytical_approximation(env.envs[0].topology.topology_graph, traffic_load, 1.5, 3)
+    blocking_prob = blocking_probability(avg_num_v_nets, traffic_load)
+    blocking_prob_sim = blocking_probability_simulation(env.envs[0].topology.topology_graph, traffic_load, 1.5, 3)
     assert 1 == 1
