@@ -22,7 +22,30 @@ ___
 
 ### **Prerequisites:**
 
-Activate virtual environment for project using `pyproject.toml` and [Poetry](https://python-poetry.org/) or `requirements.txt` and virtualenv/venv, as desired.
+Here's a step-by-step guide on setting up a Conda environment for a project called vone-drl and using the install_requirements.py script:
+
+1. Install Miniconda or Anaconda:
+If you haven't already, install Miniconda or Anaconda on your system. You can download Miniconda from here or Anaconda from here.
+2. Create a new Conda environment:
+Open a terminal (or Anaconda Prompt on Windows), and run the following command to create a new Conda environment named vone-drl with Python installed:
+```commandline
+conda create -n vone-drl python
+```
+3. Activate the environment:
+```commandline
+conda activate vone-drl
+```
+4. Navigate to your project directory:
+In the terminal, navigate to the root directory of your vone-drl project.
+5. Run the install_requirements.py script:
+In the terminal, run the following command to execute the install_requirements.py script:
+```commandline
+python install_requirements.py
+```
+This will install the required packages, as specified in the requirements.txt and requirements-gpu.txt files.
+
+Now, you should have a Conda environment named vone-drl with all the necessary packages installed. You can use this environment to work on your project. When you want to deactivate the environment, run conda deactivate. To reactivate the environment later, use conda activate vone-drl.
+
 
 ### **Instructions:**
 

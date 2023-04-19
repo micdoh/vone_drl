@@ -4,6 +4,8 @@ import yaml
 import pandas as pd
 import stable_baselines3.common.env_checker
 from pathlib import Path
+sys.path.append(os.path.abspath("sb3-contrib"))
+print(sys.path)
 from sb3_contrib.common.wrappers import ActionMasker
 from sb3_contrib.common.maskable.utils import get_action_masks
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv

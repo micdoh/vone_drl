@@ -3,6 +3,8 @@ import wandb
 import pandas as pd
 import os
 from stable_baselines3 import PPO
+sys.path.append(os.path.abspath("sb3-contrib"))
+print(sys.path)
 from sb3_contrib import MaskablePPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from pathlib import Path

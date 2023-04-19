@@ -48,7 +48,20 @@ def blocking_probability(avg_virtual_networks_served, traffic_load):
     return blocking_prob
 
 
-def blocking_probability_simulation(graph, fixed_traffic_load, C_v, S, holding_time, total_requests):
+def blocking_probability_simulation(graph, fixed_traffic_load, C_v, S_v, holding_time, total_requests):
+    """Simulate the blocking probability
+
+    Args:
+        graph (networkx.classes.graph.Graph): NetworkX graph object
+        fixed_traffic_load (int): Number of virtual networks to be served
+        C_v (int): Virtual network capacity
+        S_v (int): Number of slots per link
+        holding_time (int): Holding time of the virtual network
+        total_requests (int): Total number of requests
+
+    Returns:
+        float: Blocking probability
+    """
     # Initialize the simulation
     current_time = 0
     num_requests = 0
@@ -75,7 +88,7 @@ def blocking_probability_simulation(graph, fixed_traffic_load, C_v, S, holding_t
             num_requests += 1
 
             # Check if the request can be served
-            avg_virtual_networks = rough_analytical_approximation(graph, fixed_traffic_load, C_v, S)
+            avg_virtual_networks = rough_analytical_approximation(graph, fixed_traffic_load, C_v, S_v)
             if active_requests >= avg_virtual_networks:
                 num_blocked += 1
             else:
@@ -91,6 +104,93 @@ def blocking_probability_simulation(graph, fixed_traffic_load, C_v, S, holding_t
         elif event_type == 'departure':
             active_requests -= 1
 
-    return num_blocked / num_requests if num_requests > 0 else 0
+    return float(num_blocked / num_requests if num_requests > 0 else 0)
 
 
+def calculate_nrtm_lrtm(graph, weight=None):
+    """
+    Calculate the Node Resource and Topology Metric (NRTM) and Link Resource and Topology Metric (LRTM).
+
+    Parameters:
+    -----------
+    graph: networkx.Graph
+        Input graph with 'C' and 'L' attributes for nodes and edges, respectively.
+    weight: str
+        Edge attribute to use as weight for betweenness centrality calculations.
+
+    Returns:
+    --------
+    NRTM: float
+        Node Resource and Topology Metric
+    LRTM: float
+        Link Resource and Topology Metric
+    """
+    # Calculate node and link resource capacities
+    node_resources = np.array(list(nx.get_node_attributes(graph, 'C').values()))
+    link_resources = list(nx.get_edge_attributes(graph, 'slots').values())
+    NRC = np.sum(node_resources)
+    LRC = np.sum([len(slots) for slots in link_resources])
+
+
+    # Calculate mean weighted node betweenness and mean edge betweenness
+    node_betweenness = nx.betweenness_centrality(graph, weight=weight)
+    edge_betweenness = nx.edge_betweenness_centrality(graph, weight=None)
+    MWNB = np.mean(list(node_betweenness.values()))
+    MEB = np.mean(list(edge_betweenness.values()))
+
+    # Normalize the topological measures
+    MWNB_norm = (MWNB - np.min(list(node_betweenness.values()))) / (
+                np.max(list(node_betweenness.values())) - np.min(list(node_betweenness.values())))
+    MEB_norm = (MEB - np.min(list(edge_betweenness.values()))) / (
+                np.max(list(edge_betweenness.values())) - np.min(list(edge_betweenness.values())))
+
+    # Node Resource and Topology Metric
+    NRTM = MWNB_norm * NRC
+
+    # Link Resource and Topology Metric
+    LRTM = MEB_norm * LRC
+
+    return NRTM, LRTM
+
+
+def create_virtual_network(adjacency_list, mean_node_request, mean_slot_request):
+    G = nx.Graph()
+    nodes = set([node for edge in adjacency_list for node in edge])
+    G.add_nodes_from(nodes, C=mean_node_request)
+    G.add_edges_from(adjacency_list, slots=np.full(mean_slot_request, 1))
+    return G
+
+
+def calculate_v_nrtm_lrtm(mean_node_request, mean_slot_request, adjacency_lists=[((0, 1), (1, 2), (0, 2))]):
+    """
+    Calculate the mean Node Resource and Topology Metric (NRTM) and Link Resource and Topology Metric (LRTM) for a set of virtual networks.
+
+    Parameters:
+    -----------
+    mean_node_request: float
+        Mean node resource request for the virtual networks.
+    mean_slot_request: int
+        Mean number of slots requested for the links in the virtual networks.
+    adjacency_lists: list of tuples
+        List of adjacency lists representing the virtual network topologies.
+
+    Returns:
+    --------
+    mean_NRTM: float
+        Mean Node Resource and Topology Metric for the virtual networks.
+    mean_LRTM: float
+        Mean Link Resource and Topology Metric for the virtual networks.
+    """
+    nrtm_values = []
+    lrtm_values = []
+
+    for adjacency_list in adjacency_lists:
+        virtual_network = create_virtual_network(adjacency_list, mean_node_request, mean_slot_request)
+        nrtm, lrtm = calculate_nrtm_lrtm(virtual_network)
+        nrtm_values.append(nrtm)
+        lrtm_values.append(lrtm)
+
+    mean_NRTM = np.mean(nrtm_values)
+    mean_LRTM = np.mean(lrtm_values)
+
+    return mean_NRTM, mean_LRTM

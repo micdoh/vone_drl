@@ -6,7 +6,7 @@ authors = ["Michael Doherty"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.11"
+python = ">=3.9,<3.12"
 numpy = "^1.23.4"
 networkx = "^2.8.7"
 Cython = "^0.29.32"
@@ -28,7 +28,8 @@ pytest = "^7.2.0"
 jupyter = "^1.0.0"
 ray = {version = "^2.1.0", markers = "sys_platform != 'win64'"}
 stable-baselines3 = {git = "https://github.com/DLR-RM/stable-baselines3", branch = "master"}
-sb3-contrib = {git = "https://gitlab.ee.ucl.ac.uk/ong/networks/virtual-optical-network-embedding/stable-baselines3-contrib-multistep-masking.git"}
+#sb3-contrib = {git = "https://gitlab.ee.ucl.ac.uk/ong/networks/virtual-optical-network-embedding/stable-baselines3-contrib-multistep-masking.git"}
+
 # Optional dependencies (for GPU platform only). Install with poetry install --extras cuda
 #torch = [
 #    { version = ">=1.11", markers = "sys_platform == 'darwin'"},
@@ -36,6 +37,7 @@ sb3-contrib = {git = "https://gitlab.ee.ucl.ac.uk/ong/networks/virtual-optical-n
 #]
 #nvidia-cuda-runtime-cu11 = {version = "^2022.4.25", markers = "sys_platform != 'darwin'", optional = true}
 #torchvision = { version = "*", source = "pytorch", markers = "sys_platform != 'darwin'", optional = true}
+pyyaml = "^6.0"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]

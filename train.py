@@ -1,6 +1,10 @@
 import yaml
 import wandb
 from stable_baselines3 import PPO
+import sys
+import os
+sys.path.append(os.path.abspath("sb3-contrib"))
+print(sys.path)
 from sb3_contrib import MaskablePPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from pathlib import Path
@@ -51,6 +55,7 @@ if __name__ == "__main__":
         wandb.define_metric("acceptance_ratio", step_metric="episode_number")
         conf["env_args"]["wandb_log"] = True
 
+    # Don't use wandb to monitor training run
     else:
         (
             log_dir,
