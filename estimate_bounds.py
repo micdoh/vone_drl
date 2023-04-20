@@ -114,7 +114,7 @@ def calculate_nrtm_lrtm(graph, weight=None):
     Parameters:
     -----------
     graph: networkx.Graph
-        Input graph with 'C' and 'L' attributes for nodes and edges, respectively.
+        Input graph with 'capacity' and 'slots' attributes for nodes and edges, respectively.
     weight: str
         Edge attribute to use as weight for betweenness centrality calculations.
 
@@ -126,7 +126,7 @@ def calculate_nrtm_lrtm(graph, weight=None):
         Link Resource and Topology Metric
     """
     # Calculate node and link resource capacities
-    node_resources = np.array(list(nx.get_node_attributes(graph, 'C').values()))
+    node_resources = np.array(list(nx.get_node_attributes(graph, 'capacity').values()))
     link_resources = list(nx.get_edge_attributes(graph, 'slots').values())
     NRC = np.sum(node_resources)
     LRC = np.sum([len(slots) for slots in link_resources])
@@ -134,21 +134,21 @@ def calculate_nrtm_lrtm(graph, weight=None):
 
     # Calculate mean weighted node betweenness and mean edge betweenness
     node_betweenness = nx.betweenness_centrality(graph, weight=weight)
-    edge_betweenness = nx.edge_betweenness_centrality(graph, weight=None)
+    edge_betweenness = nx.edge_betweenness_centrality(graph, weight=weight)
     MWNB = np.mean(list(node_betweenness.values()))
-    MEB = np.mean(list(edge_betweenness.values()))
+    MWEB = np.mean(list(edge_betweenness.values()))
 
     # Normalize the topological measures
-    MWNB_norm = (MWNB - np.min(list(node_betweenness.values()))) / (
-                np.max(list(node_betweenness.values())) - np.min(list(node_betweenness.values())))
-    MEB_norm = (MEB - np.min(list(edge_betweenness.values()))) / (
-                np.max(list(edge_betweenness.values())) - np.min(list(edge_betweenness.values())))
+    MWNB_range = np.max(list(node_betweenness.values())) - np.min(list(node_betweenness.values()))
+    MWEB_range = np.max(list(edge_betweenness.values())) - np.min(list(edge_betweenness.values()))
+    MWNB_norm = (MWNB - np.min(list(node_betweenness.values()))) / MWNB_range if MWNB_range != 0 else 1
+    MWEB_norm = (MWEB - np.min(list(edge_betweenness.values()))) / MWEB_range if MWEB_range != 0 else 1
 
     # Node Resource and Topology Metric
     NRTM = MWNB_norm * NRC
 
     # Link Resource and Topology Metric
-    LRTM = MEB_norm * LRC
+    LRTM = MWEB_norm * LRC
 
     return NRTM, LRTM
 
@@ -156,7 +156,7 @@ def calculate_nrtm_lrtm(graph, weight=None):
 def create_virtual_network(adjacency_list, mean_node_request, mean_slot_request):
     G = nx.Graph()
     nodes = set([node for edge in adjacency_list for node in edge])
-    G.add_nodes_from(nodes, C=mean_node_request)
+    G.add_nodes_from(nodes, capacity=mean_node_request)
     G.add_edges_from(adjacency_list, slots=np.full(mean_slot_request, 1))
     return G
 

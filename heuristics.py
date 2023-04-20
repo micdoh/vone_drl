@@ -708,7 +708,13 @@ def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic:
 
     df = pd.DataFrame(info_list)
 
-    results = {"load": the_env.load, "reward": df["reward"].mean(), "std": df["reward"].std()}
+    results = {
+        "load": the_env.load,
+        "reward": df["reward"].mean(),
+        "reward_std": df["reward"].std(),
+        "acceptance_ratio": df["acceptance_ratio"].iloc[-1],
+        "blocking": 1-df["acceptance_ratio"].iloc[-1],
+    }
     logger.info(results)
 
     return results, df

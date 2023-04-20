@@ -142,6 +142,9 @@ def parse_args():
         "--eval_masking", action="store_true", help="Eval: Use invalid action masking for evaluation"
     )
     parser.add_argument(
+        "--eval_multistep_masking", action="store_true", help="Eval: Use multistep invalid action masking for evaluation"
+    )
+    parser.add_argument(
         "--output_file", default="", type=str, help="Eval: Path to output csv file"
     )
     parser.add_argument(
@@ -155,6 +158,9 @@ def parse_args():
         default=15,
         type=int,
         help="Eval: Max. of range of loads to evaluate",
+    )
+    parser.add_argument(
+        "--load_step", default=1, type=int, help="Eval: Step size of loads to evaluate"
     )
     parser.add_argument(
         "--model_file", default="", type=str, help="Path to model zip file for retraining"
@@ -196,7 +202,12 @@ def parse_args():
         action="store_true",
         help="Use afterstate as input to value function",
     )
-
+    parser.add_argument(
+        "--n_eval_episodes", default=2, type=int, help="Eval: Number of episodes to evaluate at each load"
+    )
+    parser.add_argument(
+        "--callback", action="store_true", help="Use callback to save model and/or data"
+    )
     return parser.parse_args()
 
 

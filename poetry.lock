@@ -4550,22 +4550,6 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
-name = "sklearn"
-version = "0.0.post4"
-description = "deprecated sklearn package, use scikit-learn instead"
-category = "main"
-optional = false
-python-versions = "*"
-files = [
-    {file = "sklearn-0.0.post4.tar.gz", hash = "sha256:0e81ec9c32d4bb418e7be8f1ec1027d174975502dc84cbc4f4564b4cba31e674"},
-]
-
-[package.source]
-type = "legacy"
-url = "https://pypi.org/simple"
-reference = "pypi-public"
-
-[[package]]
 name = "smmap"
 version = "5.0.0"
 description = "A pure Python implementation of a sliding window memory map manager"
@@ -5480,4 +5464,4 @@ cuda = []
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.12"
-content-hash = "2728cb9dac241322b1d09abaf384cd0d4941e43662b9ae2ade3375426c24ebf7"
+content-hash = "8069844b5565ff3371678a6a6567f75c4c04732e1dbdd83e1cf9052163038e59"

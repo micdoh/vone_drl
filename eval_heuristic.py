@@ -22,6 +22,9 @@ if __name__ == "__main__":
         "--max_load", default=15, type=int, help="Maximum load"
     )
     parser.add_argument(
+        "--load_step", default=1, type=int, help="Increment load by this amount"
+    )
+    parser.add_argument(
         "--num_episodes", default=3, type=int, help="Number of episodes"
     )
     parser.add_argument(

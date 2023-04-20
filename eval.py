@@ -2,6 +2,7 @@ import yaml
 import wandb
 import pandas as pd
 import os
+import sys
 from stable_baselines3 import PPO
 sys.path.append(os.path.abspath("sb3-contrib"))
 print(sys.path)
@@ -9,6 +10,7 @@ from sb3_contrib import MaskablePPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from pathlib import Path
 from datetime import datetime
+from stable_baselines3.common.callbacks import CallbackList
 from sb3_contrib.common.maskable.evaluation import evaluate_policy
 from stable_baselines3.common.callbacks import CallbackList
 from wandb.integration.sb3 import WandbCallback
@@ -31,6 +33,9 @@ if __name__ == "__main__":
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
+    output_file = Path(args.output_file).parent / start_time / Path(args.output_file).name
+    episode_data_file = Path(args.output_file).parent / start_time / "episode_data.csv"
+
     episode_length = conf["env_args"]["episode_length"]
 
     if args.artifact is not None:
@@ -50,8 +55,9 @@ if __name__ == "__main__":
         env = (DummyVecEnv(env))
         agent_args = ("MultiInputPolicy", env)
         agent_kwargs = dict(multistep_masking=args.multistep_masking,
-                            multistep_masking_terms=[args.multistep_masking_terms],
+                            multistep_masking_attr=args.multistep_masking_attr,
                             action_interpreter=args.action_interpreter,
+                            multistep_masking_n_steps=args.multistep_masking_n_steps,
                             )
         model = (
             MaskablePPO(*agent_args, **agent_kwargs)
@@ -59,7 +65,21 @@ if __name__ == "__main__":
             else PPO(*agent_args, **agent_kwargs)
         )
         model.set_parameters(model_file)
-        eva = evaluate_policy(model, env, n_eval_episodes=3, use_masking=args.eval_masking)
+        callback = CustomCallback(
+                env=env,
+                data_file=episode_data_file,
+                model_file=model_save_file,
+                save_model=False,
+                save_episode_info=args.save_episode_info,
+            ) if args.callback else None
+        eva = evaluate_policy(
+            model,
+            env,
+            n_eval_episodes=args.n_eval_episodes,
+            use_masking=args.eval_masking,
+            use_multistep_masking=args.eval_multistep_masking,
+            callback=callback,
+        )
         results.append({
             "load": load,
             "reward": eva[0]/episode_length,
@@ -69,5 +89,5 @@ if __name__ == "__main__":
         })
 
     df = pd.DataFrame(results)
-    df.to_csv(args.output_file, mode='a', header=not os.path.exists(args.output_file))
+    df.to_csv(args.output_file, mode='a', header=not os.path.exists(output_file))
     print(results)
