@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     data_file.parent.mkdir(exist_ok=True)
 
-    for load in range(args.min_load, args.max_load+1):
+    for load in range(args.min_load, args.max_load+1, args.load_step):
 
         env_args = conf["env_args"]
         env_args["load"] = load
