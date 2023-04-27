@@ -34,21 +34,22 @@ if __name__ == "__main__":
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
     output_file = Path(args.output_file).parent / start_time / Path(args.output_file).name
-    episode_data_file = Path(args.output_file).parent / start_time / "episode_data.csv"
+    episode_data_file = Path(args.output_file).parent / start_time / "timestep_data.csv"
+    output_file.parent.mkdir(exist_ok=True)
 
     episode_length = conf["env_args"]["episode_length"]
 
-    if args.artifact is not None:
+    if args.artifact:
         logger.warn(f"Downloading artifact {args.artifact}")
         api = wandb.Api()
         artifact = api.artifact(args.artifact)
-        model_file = artifact.download(root=Path(args.output_file).parent) / f"{artifact.name.split(':')[0]}.zip"
+        model_file = artifact.download(root=Path(__file__).parent) / "models" / f"{artifact.name.split(':')[0]}.zip"
         print(model_file.resolve())
     else:
         model_file = args.model_file
 
     results = []
-    for load in range(args.min_load, args.max_load + 1):
+    for load in range(args.min_load, args.max_load + 1, args.load_step):
         callbacks = []
         conf["env_args"]["load"] = load
         env = [make_env(conf["env_name"], seed=load, **conf["env_args"])]
@@ -70,7 +71,7 @@ if __name__ == "__main__":
                 data_file=episode_data_file,
                 model_file=model_save_file,
                 save_model=False,
-                save_episode_info=args.save_episode_info,
+                save_episode_info=True
             ) if args.callback else None
         eva = evaluate_policy(
             model,
@@ -80,6 +81,7 @@ if __name__ == "__main__":
             use_multistep_masking=args.eval_multistep_masking,
             callback=callback,
         )
+        # This assumes reward is 0 or +10 for every step
         results.append({
             "load": load,
             "reward": eva[0]/episode_length,
@@ -89,5 +91,5 @@ if __name__ == "__main__":
         })
 
     df = pd.DataFrame(results)
-    df.to_csv(args.output_file, mode='a', header=not os.path.exists(output_file))
+    df.to_csv(output_file, mode='a', header=not os.path.exists(output_file))
     print(results)

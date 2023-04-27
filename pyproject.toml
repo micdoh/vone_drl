@@ -37,6 +37,7 @@ stable-baselines3 = {git = "https://github.com/DLR-RM/stable-baselines3", branch
 #nvidia-cuda-runtime-cu11 = {version = "^2022.4.25", markers = "sys_platform != 'darwin'", optional = true}
 #torchvision = { version = "*", source = "pytorch", markers = "sys_platform != 'darwin'", optional = true}
 pyyaml = "^6.0"
+seaborn = "^0.12.2"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]

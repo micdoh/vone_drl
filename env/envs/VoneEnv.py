@@ -623,6 +623,8 @@ class VoneEnv(gym.Env):
             "topology_name": self.topology_name,
             "load": self.load,
             "mean_service_holding_time": self.mean_service_holding_time,
+            "services_processed": self.services_processed,
+            "accepted": self.accepted,
             "reward": reward,
             "code": 0,
             "message": None,
@@ -631,7 +633,7 @@ class VoneEnv(gym.Env):
             "links_selected": path_list,
             "slots_selected": initial_slot_selected,
             "afterstate": afterstate,
-            **fail_info
+            **fail_info  # Overwrites "code" and "message"
         }
         self.current_info = info
         self.reset_selections()  # Remove selections for next step action masking

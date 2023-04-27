@@ -36,7 +36,7 @@ class CustomCallback(BaseCallback):
         self.record_episode_reward = -1e8
         self.save_model = save_model
         self.episode_length = env.get_attr("episode_length")[0]
-        self.save_episode_info=save_episode_info
+        self.save_episode_info = save_episode_info
         # Number of time the callback was called
         # self.n_calls = 0  # type: int
         # self.num_timesteps = 0  # type: int
