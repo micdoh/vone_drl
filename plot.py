@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon, Rectangle, Circle
 from matplotlib.collections import PatchCollection
 import matplotlib.colors as mcolors
+import seaborn as sns
 
 
 class GridVisualizer:
@@ -178,6 +179,9 @@ if __name__ == "__main__":
         "--heur_eval_file", default="", type=str, help="Path to heuristics csv file"
     )
     parser.add_argument(
+        "--heur_eval_file_1", default="", type=str, help="Path to heuristics csv file"
+    )
+    parser.add_argument(
         "--node_eval_file", default="", type=str, help="Path to node agent csv file"
     )
     parser.add_argument(
@@ -262,3 +266,45 @@ if __name__ == "__main__":
         plt.xlim(0, 40)
         plt.grid(True)
         plt.show()
+
+    def calc_blocking_std(df):
+        df["blocking_std"] = (df["reward_std"] / 10) * df["blocking"]
+
+    combined_eval = Path(args.combined_eval_file)
+    heur_eval = Path(args.heur_eval_file)
+    heur_eval_1 = Path(args.heur_eval_file_1)
+
+    combined_eval_df = pd.read_csv(combined_eval)
+    heur_eval_df = pd.read_csv(heur_eval)
+    heur_eval_1_df = pd.read_csv(heur_eval_1)
+
+    calc_blocking_std(heur_eval_df)
+    calc_blocking_std(heur_eval_1_df)
+
+    if args.use_tex:
+        rc('text', usetex=True)
+        rc('font', size=14)
+        rc('legend', fontsize=13)
+        rc('text.latex', preamble=r'\usepackage{cmbright}')
+
+    fig, ax = plt.subplots()
+    clrs = sns.color_palette("husl", 5)
+    labels = ["Combined Agent", "NSC-kSP-FDL", "CaLRC-kSP-FF"]
+    with sns.axes_style("darkgrid"):
+        for i, df in enumerate([combined_eval_df, heur_eval_df, heur_eval_1_df]):
+            ax.plot(df["load"], df["blocking"], label=labels[i], c=clrs[i])
+            ax.fill_between(df["load"], df["blocking"] - df["blocking_std"], df["blocking"] + df["blocking_std"], alpha=0.3, facecolor=clrs[i])
+            ax.legend()
+            ax.set_yscale('log')
+
+    #plt.plot(combined_eval_df["load"], combined_eval_df["blocking"], label="Agent", marker="d", color='g')
+    #plt.plot(heur_eval_df["load"], heur_eval_df["blocking"], label="CaLRC-kSP-FF", marker="s", color='r')
+    #plt.plot(heur_eval_1_df["load"], heur_eval_1_df["blocking"], label="NSC-kSP-FDL", marker="s", color='b')
+
+    plt.legend()
+    plt.ylabel(r"Blocking Probability")# [\%]")
+    plt.xlabel("Traffic Load [Erlangs]")
+    plt.yscale("log")
+    plt.xlim(40, 100)
+    plt.grid(True)
+    plt.show()

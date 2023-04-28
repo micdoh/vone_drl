@@ -628,7 +628,7 @@ class VoneEnv(gym.Env):
             "reward": reward,
             "code": 0,
             "message": None,
-            "nodes_selected": nodes_selected,
+            "nodes_selected": list(nodes_selected),
             "paths_selected": k_path_selected,
             "links_selected": path_list,
             "slots_selected": initial_slot_selected,
