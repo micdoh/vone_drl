@@ -4,9 +4,10 @@ import yaml
 import pandas as pd
 import stable_baselines3.common.env_checker
 from pathlib import Path
+import os
+import sys
 sys.path.append(os.path.abspath("sb3-contrib"))
 print(sys.path)
-from sb3_contrib.common.wrappers import ActionMasker
 from sb3_contrib.common.maskable.utils import get_action_masks
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from sb3_contrib import MaskablePPO
@@ -309,7 +310,10 @@ def test_nsc_ksp_ff_4_node(setup_vone_env_4node):
     results, df = run_heuristic(env, "nsc", "ff")
     assert 1 == 1
 
-
+def test_random_masked_4_node(setup_vone_env_4node):
+    env = setup_vone_env_4node
+    results, df = run_random_masked_heuristic(env)
+    assert 1 == 1
 
 def test_visualise_graph(setup_vone_env):
     node_locations = {

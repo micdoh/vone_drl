@@ -7,6 +7,10 @@ import logging
 from copy import deepcopy
 from networkx import Graph
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+import sys
+import os
+sys.path.append(os.path.abspath("sb3-contrib"))
+from sb3_contrib.common.maskable.utils import get_action_masks
 
 
 
@@ -581,6 +585,38 @@ def rank_v_nodes_mrr(cap_request, bw_request, adjacency_list=((0, 1), (1, 2), (2
     return rank
 
 
+def random_masked_selection(env: gym.Env, action_interpreter, masking_steps: int = 3, multistep_masking_attr: str = "curr_selection"):
+    """Mask the nodes and select randomly from unmasked nodes.
+
+    Args:
+        env: Gym environment.
+        topology: Substrate network graph.
+
+    Returns:
+        selected_nodes: List of node indices that have been selected
+        node_mapping_success: Bool to indicate successful mapping
+    """
+    # Store previous selections
+    selections = []
+    action_dims = env.action_space.nvec
+    prev_dim = 0
+    actions = np.zeros(action_dims.shape[0], dtype=int)
+    for i, curr_dim in enumerate(action_dims):
+        curr_dim += prev_dim
+        action_mask = get_action_masks(env)
+        action_mask = np.reshape(action_mask, (action_mask.shape[1]))
+        action_mask_for_dim = action_mask[prev_dim: curr_dim]
+        normed_action_mask = (action_mask_for_dim / np.sum(action_mask_for_dim)) if np.sum(action_mask_for_dim) > 0 else None
+        actions[i] = np.random.choice(np.arange(prev_dim, curr_dim), p=normed_action_mask) - prev_dim
+        selection = action_interpreter(actions)
+        selections.append(selection)
+        # Set the environment attribute to the selections
+        # N.B. The environment must not be wrapped for this to work
+        env.set_attr(multistep_masking_attr, selections, indices=[n for n in range(env.num_envs)])
+        prev_dim = curr_dim
+    return np.reshape(actions, (1, actions.shape[0]))
+
+
 def select_nodes(env: gym.Env, topology: Graph, heuristic: str = "nsc", betweenness: dict = {}) -> ([int], dict):
     """Select nodes for mapping based on a heuristic.
 
@@ -634,6 +670,7 @@ def select_nodes(env: gym.Env, topology: Graph, heuristic: str = "nsc", betweenn
         selected_nodes = np.array([n for n in range(request_size)])
 
     return selected_nodes, fail_info
+
 
 def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic: str = "ff", combined: bool = True):
     """
@@ -710,6 +747,43 @@ def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic:
 
     results = {
         "load": the_env.load,
+        "reward": df["reward"].mean(),
+        "blocking": 1-df["acceptance_ratio"].iloc[-1],
+    }
+    logger.info(results)
+
+    return results, df
+
+
+def run_random_masked_heuristic(
+        the_env: gym.Env,
+        action_interpreter: str = "select_nodes_paths_slots",
+        masking_steps: int = 3,
+        multistep_masking_attr: str = "curr_selection"
+    ):
+    observation = the_env.reset()
+    action_interpreter = the_env.get_attr(action_interpreter)[0]
+    info = {}
+    info_list = []
+    step = 0
+
+    while step < the_env.envs[0].episode_length:
+        step += 1
+
+        action_ints = random_masked_selection(
+            the_env, action_interpreter, masking_steps=masking_steps, multistep_masking_attr=multistep_masking_attr)
+
+        info = the_env.step(
+            action_ints
+        )[-1][0]
+        info_list.append(info)
+
+    logger.info(info)
+
+    df = pd.DataFrame(info_list)
+
+    results = {
+        "load": the_env.envs[0].load,
         "reward": df["reward"].mean(),
         "blocking": 1-df["acceptance_ratio"].iloc[-1],
     }

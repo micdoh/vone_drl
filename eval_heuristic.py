@@ -8,6 +8,7 @@ import argparse
 import env.envs
 import yaml
 from datetime import datetime
+from util_funcs import make_env
 
 
 if __name__ == "__main__":
@@ -40,6 +41,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--path_heuristic", type=str, help="Path heuristic"
     )
+    parser.add_argument(
+        "--random", action="store_true", help="Use random policy for evaluation"
+    )
+    parser.add_argument(
+        "--multistep_masking_attr",
+        default="curr_selection",
+        type=str,
+        help="Specify environment variables to be accessed sequentially in multistep masking",
+    )
+    parser.add_argument(
+        "--multistep_masking_n_steps",
+        default=3,
+        type=int,
+        help="Specify number of steps to mask in multistep masking",
+    )
+    parser.add_argument(
+        "--action_interpreter",
+        default="select_nodes_paths_slots",
+        help="Specify function that interprets actions in the env. To be used in multistep action masking.",
+    )
     args = parser.parse_args()
 
     conf = yaml.safe_load(Path(args.env_file).read_text())
@@ -55,12 +76,22 @@ if __name__ == "__main__":
         env_args["load"] = load
         env_args["wandb_log"] = False
 
-        the_env = gym.make(conf["env_name"], **env_args)
+        the_env = gym.make(conf["env_name"], **env_args).seed(load) if not args.random \
+            else DummyVecEnv([make_env(conf["env_name"], load, **env_args)])
         results = []
         for ep in range(args.num_episodes):
 
             obs = the_env.reset()
-            result, timestep_info_df = run_heuristic(the_env, node_heuristic=args.node_heuristic, path_heuristic=args.path_heuristic)
+            result, timestep_info_df = run_heuristic(
+                the_env,
+                node_heuristic=args.node_heuristic,
+                path_heuristic=args.path_heuristic
+            ) if not args.random else run_random_masked_heuristic(
+                the_env,
+                action_interpreter=args.action_interpreter,
+                masking_steps=args.multistep_masking_n_steps,
+                multistep_masking_attr=args.multistep_masking_attr
+            )
             results.append(result)
             # Write timestep info to file
             timestep_info_df.to_csv(timestep_data_file, mode='a', header=not os.path.exists(timestep_data_file))
