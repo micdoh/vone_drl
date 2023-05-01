@@ -76,8 +76,12 @@ if __name__ == "__main__":
         env_args["load"] = load
         env_args["wandb_log"] = False
 
-        the_env = gym.make(conf["env_name"], **env_args).seed(load) if not args.random \
-            else DummyVecEnv([make_env(conf["env_name"], load, **env_args)])
+        if args.random:
+            the_env = DummyVecEnv([make_env(conf["env_name"], load, **env_args)])
+        else:
+            the_env = gym.make(conf["env_name"], **env_args)
+            the_env.seed(load)
+
         results = []
         for ep in range(args.num_episodes):
 
