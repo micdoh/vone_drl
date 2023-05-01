@@ -203,6 +203,14 @@ if __name__ == "__main__":
         "--use_tex", action="store_true", help="Use tex for plotting"
     )
     args = parser.parse_args()
+    rc('font', size=12)
+    rc('legend', fontsize=10)
+
+    if args.use_tex:
+        rc('text', usetex=True)
+        rc('font', size=14)
+        rc('legend', fontsize=13)
+        rc('text.latex', preamble=r'\usepackage{cmbright}')
 
     if args.eval:
 
@@ -220,12 +228,6 @@ if __name__ == "__main__":
         replace_blocking_cols(node_eval_df)
         replace_blocking_cols(combined_eval_df)
         replace_blocking_cols(heur_eval_df)
-
-        if args.use_tex:
-            rc('text', usetex=True)
-            rc('font', size=14)
-            rc('legend', fontsize=13)
-            rc('text.latex', preamble=r'\usepackage{cmbright}')
 
         plt.plot(path_eval_df["load"], path_eval_df["blocking"], label="Path Agent", marker='v')
         plt.plot(node_eval_df["load"], node_eval_df["blocking"], label="Node Agent", marker='o')
@@ -249,15 +251,15 @@ if __name__ == "__main__":
         path_train_df = pd.read_csv(path_train)
         combined_train_df = pd.read_csv(combined_train)
 
-        if args.use_tex:
-            rc('text', usetex=True)
-            rc('font', size=14)
-            rc('legend', fontsize=13)
-            rc('text.latex', preamble=r'\usepackage{cmbright}')
-
         plt.plot(path_train_df["Step"], path_train_df["acceptance_ratio"], label="Path Agent", marker='v')
         plt.plot(node_train_df["Step"], node_train_df["acceptance_ratio"], label="Node Agent", marker="o")
         plt.plot(combined_train_df["Step"][:40], combined_train_df["acceptance_ratio"][:40], label="Combined Agent", marker='d')
+
+        # Create lineplot
+        # sns.lineplot(x=path_train_df["Step"], y=path_train_df["acceptance_ratio"], label="Path Agent", marker='v')
+        # sns.lineplot(x=node_train_df["Step"], y=node_train_df["acceptance_ratio"], label="Node Agent", marker="o")
+        # sns.lineplot(x=combined_train_df["Step"][:40], y=combined_train_df["acceptance_ratio"][:40],
+        #              label="Combined Agent", marker='d')
 
         plt.legend()
         plt.ylabel("Acceptance Ratio")
@@ -267,9 +269,6 @@ if __name__ == "__main__":
         plt.grid(True)
         plt.show()
 
-    def calc_blocking_std(df):
-        df["blocking_std"] = (df["reward_std"] / 10) * df["blocking"]
-
     combined_eval = Path(args.combined_eval_file)
     heur_eval = Path(args.heur_eval_file)
     heur_eval_1 = Path(args.heur_eval_file_1)
@@ -278,30 +277,25 @@ if __name__ == "__main__":
     heur_eval_df = pd.read_csv(heur_eval)
     heur_eval_1_df = pd.read_csv(heur_eval_1)
 
-    calc_blocking_std(heur_eval_df)
-    calc_blocking_std(heur_eval_1_df)
-
     if args.use_tex:
         rc('text', usetex=True)
-        rc('font', size=14)
-        rc('legend', fontsize=13)
         rc('text.latex', preamble=r'\usepackage{cmbright}')
 
     fig, ax = plt.subplots()
     clrs = sns.color_palette("husl", 5)
-    labels = ["Combined Agent", "NSC-kSP-FDL", "CaLRC-kSP-FF"]
+    labels = ["Combined Agent", "NSC-kSP-FF", "CaLRC-kSP-FF"]
     with sns.axes_style("darkgrid"):
         for i, df in enumerate([combined_eval_df, heur_eval_df, heur_eval_1_df]):
             ax.plot(df["load"], df["blocking"], label=labels[i], c=clrs[i])
             ax.fill_between(df["load"], df["blocking"] - df["blocking_std"], df["blocking"] + df["blocking_std"], alpha=0.3, facecolor=clrs[i])
-            ax.legend()
+            ax.legend(loc="lower right")
             ax.set_yscale('log')
 
     #plt.plot(combined_eval_df["load"], combined_eval_df["blocking"], label="Agent", marker="d", color='g')
     #plt.plot(heur_eval_df["load"], heur_eval_df["blocking"], label="CaLRC-kSP-FF", marker="s", color='r')
     #plt.plot(heur_eval_1_df["load"], heur_eval_1_df["blocking"], label="NSC-kSP-FDL", marker="s", color='b')
 
-    plt.legend()
+    plt.legend(loc="lower right")
     plt.ylabel(r"Blocking Probability")# [\%]")
     plt.xlabel("Traffic Load [Erlangs]")
     plt.yscale("log")
