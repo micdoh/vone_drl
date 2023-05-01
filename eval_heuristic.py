@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     data_file = Path(args.output_file).parent / start_time / Path(args.output_file).name
-    timestep_data_file = Path(args.timestep_output_file).parent / start_time / Path(args.timestep_output_file).name
+    timestep_data_file = data_file.parent / Path(args.timestep_output_file).name
     data_file.parent.mkdir(exist_ok=True)
 
     for load in range(args.min_load, args.max_load+1, args.load_step):
