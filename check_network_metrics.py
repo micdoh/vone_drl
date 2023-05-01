@@ -118,7 +118,7 @@ if __name__ == "__main__":
             "vnet_size_dist": "fixed",
         }
 
-        for num_slots in np.arange(args.min_slots, args.max_slots + 1, args.slot_step):
+        for num_slots in np.arange(args.min_slots, args.max_slots + 1, args.slots_step):
 
             env_args["num_slots"] = num_slots
 
