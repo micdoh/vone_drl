@@ -165,7 +165,7 @@ if __name__ == "__main__":
 
                 the_env.close()
 
-    elif args.plot:
+    if args.plot:
 
         data_file = data_file if args.run else Path(args.output_file)
 
@@ -219,6 +219,3 @@ if __name__ == "__main__":
             f"{data_file.resolve()}_3d_slotsnodes.png")
         ax1.figure.savefig(
             f"{data_file.resolve()}_blocking.png")
-
-    else:
-        print("Please specify either --run or --plot or both")
