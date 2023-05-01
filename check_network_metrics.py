@@ -128,8 +128,8 @@ if __name__ == "__main__":
 
                 the_env = gym.make(args.env_name, **env_args)
 
-                mean_v_cap_request = env_args["min_node_cap_request"] + env_args["max_node_cap_request"] / 2
-                mean_v_slot_request = env_args["min_slot_request"] + env_args["max_slot_request"] / 2
+                mean_v_cap_request = int(env_args["min_node_cap_request"] + env_args["max_node_cap_request"] / 2)
+                mean_v_slot_request = int(env_args["min_slot_request"] + env_args["max_slot_request"] / 2)
 
                 # Calc NRTM and LRTM
                 nrtm, lrtm = calculate_nrtm_lrtm(the_env.topology.topology_graph)
