@@ -128,8 +128,9 @@ if __name__ == "__main__":
 
                 the_env = gym.make(args.env_name, **env_args)
 
-                mean_v_cap_request = int(env_args["min_node_cap_request"] + env_args["max_node_cap_request"] / 2)
-                mean_v_slot_request = int(env_args["min_slot_request"] + env_args["max_slot_request"] / 2)
+                # Assumes uniform distribution from min to max
+                mean_v_cap_request = int(np.arange(env_args["min_node_cap_request"], env_args["max_node_cap_request"]+1).mean())
+                mean_v_slot_request = int(np.arange(env_args["min_slot_request"], env_args["max_slot_request"]+1).mean())
 
                 # Calc NRTM and LRTM
                 nrtm, lrtm = calculate_nrtm_lrtm(the_env.topology.topology_graph)
@@ -144,6 +145,8 @@ if __name__ == "__main__":
                         node_heuristic=args.node_heuristic,
                         path_heuristic=args.path_heuristic,
                     )
+                    result["num_slots"] = num_slots
+                    result["node_capacity"] = node_cap
                     result["nrtm"] = nrtm
                     result["lrtm"] = lrtm
                     result["v_nrtm"] = v_nrtm
@@ -162,7 +165,7 @@ if __name__ == "__main__":
 
                 the_env.close()
 
-    if args.plot:
+    elif args.plot:
 
         data_file = data_file if args.run else Path(args.output_file)
 
@@ -171,20 +174,33 @@ if __name__ == "__main__":
         # Define a grid for the surface plot
         x_grid, y_grid = np.mgrid[min(df['nrtm_ratio']):max(df['nrtm_ratio']):100j,
                          min(df['lrtm_ratio']):max(df['lrtm_ratio']):100j]
-
         # Interpolate the "blocking" values to the grid
         z_grid = griddata((df['nrtm_ratio'], df['lrtm_ratio']), df['blocking'], (x_grid, y_grid), method='cubic')
-
         # Create the surface plot
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1, projection='3d')
         ax.plot_surface(x_grid, y_grid, z_grid, cmap='viridis', edgecolor='none', alpha=0.7)
-
         # Set axis labels
         ax.set_xlabel('NRTM Ratio')
         ax.set_ylabel('LRTM Ratio')
         ax.set_zlabel('Blocking')
         ax.set_zlim(0, 1)
+
+        # Surface plot with num slots and node cap as axes
+        # Define a grid for the surface plot
+        x_grid, y_grid = np.mgrid[min(df['node_capacity']):max(df['node_capacity']):100j,
+                         min(df['num_slots']):max(df['num_slots']):100j]
+        # Interpolate the "blocking" values to the grid
+        z_grid = griddata((df['node_capacity'], df['num_slots']), df['blocking'], (x_grid, y_grid), method='cubic')
+        # Create the surface plot
+        fig2 = plt.figure()
+        ax2 = fig2.add_subplot(1, 1, 1, projection='3d')
+        ax2.plot_surface(x_grid, y_grid, z_grid, cmap='viridis', edgecolor='none', alpha=0.7)
+        # Set axis labels
+        ax2.set_xlabel('Node Capacity')
+        ax2.set_ylabel('FSUs per Link')
+        ax2.set_zlabel('Blocking')
+        ax2.set_zlim(0, 1)
 
         # Plot NRTM vs blocking
         fig1, ax1 = plt.subplots()
@@ -199,6 +215,10 @@ if __name__ == "__main__":
         # Save the figures
         ax.figure.savefig(
             f"{data_file.resolve()}_3d.png")
+        ax2.figure.savefig(
+            f"{data_file.resolve()}_3d_slotsnodes.png")
         ax1.figure.savefig(
             f"{data_file.resolve()}_blocking.png")
 
+    else:
+        print("Please specify either --run or --plot or both")
