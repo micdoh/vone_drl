@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from estimate_bounds import calculate_nrtm_lrtm, calculate_v_nrtm_lrtm
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import griddata
-
+from datetime import datetime
 
 
 if __name__ == "__main__":
@@ -41,7 +41,22 @@ if __name__ == "__main__":
         "--num_slots", default=100, type=int, help="Number of slots"
     )
     parser.add_argument(
-        "--node_capacity", default=30, type=int, help="Node capacity"
+        "--min_node_cap", default=15, type=int, help="Min. substrate node capacity"
+    )
+    parser.add_argument(
+        "--max_node_cap", default=50, type=int, help="Max. substrate node capacity"
+    )
+    parser.add_argument(
+        "--node_cap_step", default=5, type=int, help="Increment substrate node capacity by this amount"
+    )
+    parser.add_argument(
+        "--min_slots", default=10, type=int, help="Minimum number of slots"
+    )
+    parser.add_argument(
+        "--max_slots", default=150, type=int, help="Maximum number of slots"
+    )
+    parser.add_argument(
+        "--slots_step", default=10, type=int, help="Increment number of slots by this amount"
     )
     parser.add_argument(
         "--min_node_cap_request", default=1, type=int, help="Minimum node capacity request"
@@ -73,49 +88,48 @@ if __name__ == "__main__":
     parser.add_argument(
         "--plot", action="store_true", help="Load and plot results"
     )
+    parser.add_argument(
+        "--run", action="store_true", help="Run experiments"
+    )
+    parser.add_argument(
+        "--save_timestep_info", action="store_true", help="Save timestep info"
+    )
     args = parser.parse_args()
 
-    env_args = {
-        "episode_length": args.episode_length,
-        "load": args.load,
-        "mean_service_holding_time": args.mean_service_holding_time,
-        "k_paths": args.k_paths,
-        "topology_name": args.topology_name,
-        "num_slots": args.num_slots,
-        "node_capacity": args.node_capacity,
-        "min_node_cap_request": args.min_node_cap_request,
-        "max_node_cap_request": args.max_node_cap_request,
-        "min_slot_request": args.min_slot_request,
-        "max_slot_request": args.max_slot_request,
-        "min_vnet_size": args.min_vnet_size,
-        "max_vnet_size": args.max_vnet_size,
-        "vnet_size_dist": "fixed",
-    }
+    if args.run:
 
-    data_file = Path(args.output_file)
-    data_file.parent.mkdir(exist_ok=True)
+        start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+        data_file = Path(args.output_file).parent / start_time / Path(args.output_file).name
+        timestep_data_file = data_file.parent / f"{Path(args.output_file).name}_timestep.csv"
+        data_file.parent.mkdir(exist_ok=True)
 
-    if not args.plot:
+        env_args = {
+            "episode_length": args.episode_length,
+            "load": args.load,
+            "mean_service_holding_time": args.mean_service_holding_time,
+            "k_paths": args.k_paths,
+            "topology_name": args.topology_name,
+            "min_node_cap_request": args.min_node_cap_request,
+            "max_node_cap_request": args.max_node_cap_request,
+            "min_slot_request": args.min_slot_request,
+            "max_slot_request": args.max_slot_request,
+            "min_vnet_size": args.min_vnet_size,
+            "max_vnet_size": args.max_vnet_size,
+            "vnet_size_dist": "fixed",
+        }
 
-        for mean_v_cap_request in np.arange(1.5, 11, 1):
+        for num_slots in np.arange(args.min_slots, args.max_slots + 1, args.slot_step):
 
-            env_args["min_node_cap_request"] = mean_v_cap_request - 0.5
-            env_args["max_node_cap_request"] = mean_v_cap_request + 0.5
+            env_args["num_slots"] = num_slots
 
-            for mean_v_slot_request in np.arange(2, 11, 1):
+            for node_cap in np.arange(args.min_node_cap, args.max_node_cap + 1, args.node_cap_step):
 
-                env_args["min_slot_request"] = mean_v_slot_request - 1
-                env_args["max_slot_request"] = mean_v_slot_request + 1
-
-                print(f"Mean vcap request: {mean_v_cap_request}, mean vslot request: {mean_v_slot_request}")
-
-
-            # mean_v_cap_request = env_args["min_node_cap_request"] + (
-            #         env_args["max_node_cap_request"] - env_args["min_node_cap_request"]) / 2
-            # mean_v_slot_request = env_args["min_slot_request"] + (
-            #         env_args["max_slot_request"] - env_args["min_slot_request"]) / 2
+                env_args["node_capacity"] = node_cap
 
                 the_env = gym.make(args.env_name, **env_args)
+
+                mean_v_cap_request = env_args["min_node_cap_request"] + env_args["max_node_cap_request"] / 2
+                mean_v_slot_request = env_args["min_slot_request"] + env_args["max_slot_request"] / 2
 
                 # Calc NRTM and LRTM
                 nrtm, lrtm = calculate_nrtm_lrtm(the_env.topology.topology_graph)
@@ -138,33 +152,21 @@ if __name__ == "__main__":
                     result["lrtm_ratio"] = lrtm / v_lrtm if v_lrtm != 0 else 0
                     results.append(result)
                     print(result)
-
-                # # Increase the mean request size
-                # env_args["min_node_cap_request"] += 1
-                # env_args["max_node_cap_request"] += 1
-                # env_args["min_slot_request"] += 1
-                # env_args["max_slot_request"] += 1
+                    if args.save_timestep_info:
+                        timestep_info_df.to_csv(timestep_data_file, mode='a', header=not os.path.exists(timestep_data_file))
 
                 df = pd.DataFrame(results)
                 # Getting the mean reward and mean standard deviation of reward per episode
                 df = pd.DataFrame([df.mean().to_dict()])
                 df.to_csv(data_file, mode='a', header=not os.path.exists(data_file))
 
-        the_env.close()
+                the_env.close()
 
-    else:
+    if args.plot:
+
+        data_file = data_file if args.run else Path(args.output_file)
 
         df = pd.read_csv(data_file)
-
-        plt.scatter(df["nrtm_ratio"], df["blocking"], label="NRTM Ratio", marker="o")
-        plt.scatter(df["lrtm_ratio"], df["blocking"], label="LRTM Ratio", marker="v")
-
-        plt.legend()
-        plt.ylabel(r"Blocking Probability [\%]")
-        plt.xlabel("Ratio")
-        plt.yscale("log")
-        plt.grid(True)
-        plt.show()
 
         # Define a grid for the surface plot
         x_grid, y_grid = np.mgrid[min(df['nrtm_ratio']):max(df['nrtm_ratio']):100j,
@@ -182,6 +184,21 @@ if __name__ == "__main__":
         ax.set_xlabel('NRTM Ratio')
         ax.set_ylabel('LRTM Ratio')
         ax.set_zlabel('Blocking')
+        ax.set_zlim(0, 1)
 
-        # Show the plot
-        plt.show()
+        # Plot NRTM vs blocking
+        fig1, ax1 = plt.subplots()
+        ax1.scatter(df["nrtm_ratio"], df["blocking"], label="NRTM Ratio", marker="o")
+        ax1.scatter(df["lrtm_ratio"], df["blocking"], label="LRTM Ratio", marker="v")
+        ax1.set_yscale('log')
+        ax1.set_xlabel('Ratio')
+        ax1.set_ylabel('Blocking Probability')
+        ax1.set_ylim(0, 1)
+        ax1.legend()
+
+        # Save the figures
+        ax.figure.savefig(
+            f"{data_file.resolve()}_3d.png")
+        ax1.figure.savefig(
+            f"{data_file.resolve()}_blocking.png")
+
