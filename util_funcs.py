@@ -208,6 +208,18 @@ def parse_args():
     parser.add_argument(
         "--callback", action="store_true", help="Use callback to save model and/or data"
     )
+    parser.add_argument(
+        "--topology_name", default="nsfnet", type=str, help="Name of topology"
+    )
+    parser.add_argument(
+        "--num_nodes", default=14, type=int, help="Number of nodes in topology"
+    )
+    parser.add_argument(
+        "--connectivity", default=0.15, type=float, help="Connectivity of topology"
+    )
+    parser.add_argument(
+        "--ws_rewire_prob", default=0.1, type=float, help="Rewiring probability of topology"
+    )
     return parser.parse_args()
 
 

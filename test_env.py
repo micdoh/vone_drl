@@ -72,7 +72,7 @@ def setup_vone_env_4node_vector():
     env = SubprocVecEnv(env)
     return env
 
-def setup_multistep_masking_agent(env):
+def setup_multistep_masking_agent(env, n_steps=3):
     model = MaskablePPO("MultiInputPolicy",
                         env,
                         gamma=0.4,
@@ -80,7 +80,7 @@ def setup_multistep_masking_agent(env):
                         verbose=1,
                         multistep_masking=True,
                         multistep_masking_attr="curr_selection",
-                        multistep_masking_n_steps=3,
+                        multistep_masking_n_steps=n_steps,
                         action_interpreter="select_nodes_paths_slots",
                         )
     return model
@@ -122,6 +122,17 @@ def setup_vone_env_node_only():
 @pytest.fixture
 def setup_vone_env_routing_masking():
     conf = yaml.safe_load(Path("./test/config_routing_masking.yaml").read_text())
+    env = [
+        make_env(conf["env_name"], seed=i, **conf["env_args"])
+        for i in range(1)
+    ]
+    env = DummyVecEnv(env)
+    return env
+
+
+@pytest.fixture
+def setup_vone_env_multidim_100_nodes():
+    conf = yaml.safe_load(Path("./test/100nodes.yaml").read_text())
     env = [
         make_env(conf["env_name"], seed=i, **conf["env_args"])
         for i in range(1)
@@ -185,6 +196,13 @@ def test_vone_env(setup_vone_env):
 def test_vone_env_100_slots(setup_vone_env_100_slots):
     env = setup_vone_env_100_slots
     model = setup_multistep_masking_agent(env)
+    n_steps = 10000
+    assert loop_episodes_to_check_masking(env, model, n_steps) is True
+
+
+def test_vone_env_100_nodes(setup_vone_env_multidim_100_nodes):
+    env = setup_vone_env_multidim_100_nodes
+    model = setup_multistep_masking_agent(env, n_steps=6)
     n_steps = 10000
     assert loop_episodes_to_check_masking(env, model, n_steps) is True
 
@@ -314,6 +332,7 @@ def test_random_masked_4_node(setup_vone_env_4node):
     env = setup_vone_env_4node
     results, df = run_random_masked_heuristic(env)
     assert 1 == 1
+
 
 def test_visualise_graph(setup_vone_env):
     node_locations = {

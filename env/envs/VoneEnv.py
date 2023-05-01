@@ -87,6 +87,10 @@ class VoneEnv(gym.Env):
         use_afterstate: bool = False,
         node_heuristic: str = "nsc",
         path_heuristic: str = "ff",
+        gen_node_selection: bool = True,
+        num_nodes: int = 0,  # For use in generating random topologies
+        connectivity: float = 0,  # For use in generating random topologies
+        ws_rewire_prob: float = 0,  # For use in generating random topologies
     ):
         self.current_time = 0
         self.allocated_Service = []
@@ -128,6 +132,9 @@ class VoneEnv(gym.Env):
         self.use_afterstate = use_afterstate
         self.node_selection_heuristic = node_heuristic
         self.path_selection_heuristic = path_heuristic
+        self.num_nodes = num_nodes
+        self.connectivity = connectivity
+        self.ws_rewire_prob = ws_rewire_prob
 
         self.load = load
         self.mean_service_holding_time = mean_service_holding_time
@@ -166,8 +173,9 @@ class VoneEnv(gym.Env):
         self.current_VN_bandwidth = np.zeros(self.max_vnet_size, dtype=int)
 
         # Specify action mapping dicts
-        self.node_selection_dict = {vnet_size: self.generate_node_selection(vnet_size) for vnet_size
-                                    in range(self.min_vnet_size, self.max_vnet_size + 1)}
+        if gen_node_selection:
+            self.node_selection_dict = {vnet_size: self.generate_node_selection(vnet_size) for vnet_size
+                                        in range(self.min_vnet_size, self.max_vnet_size + 1)}
         self.path_selection_dict = {vnet_size: self.generate_path_selection(vnet_size) for vnet_size
                                     in range(self.min_vnet_size, self.max_vnet_size + 1)}
         self.slot_selection_dict = {vnet_size: self.generate_slot_selection(vnet_size) for vnet_size
@@ -261,6 +269,12 @@ class VoneEnv(gym.Env):
             self.topology.init_dtag()
         elif self.topology_name == "eurocore":
             self.topology.init_EURO_core()
+        elif self.topology_name == "acmn":
+            self.topology.create_random_ACMN(self.num_nodes, self.connectivity)
+        elif self.topology_name == "ws_acmn":
+            self.topology.create_WS_ACMN(
+                self.num_nodes, self.connectivity, self.ws_rewire_prob
+            )
         else:
             raise Exception(
                 f"Invalid topology name without specified path: {self.topology_name} \n"
@@ -309,7 +323,7 @@ class VoneEnv(gym.Env):
         if not curr_selection:
             return np.array([1]*((self.k_paths*self.num_selectable_slots)+self.reject_action)*vnet_size)
 
-        nodes_selected = curr_selection[0][0]
+        nodes_selected = curr_selection[-1][0]  # Selected nodes are first item of last selection
         topology = self.topology.topology_graph
 
         # Return all ones if reject action selected
@@ -1043,3 +1057,77 @@ class VoneEnvPaths(VoneEnv):
         path_mask = self.mask_paths(request_size, self.curr_selection)
         self.path_mask = path_mask
         return path_mask
+
+
+class VoneEnvMultiDim(VoneEnv):
+
+    def __init__(self, gen_node_selection=False, **kwargs):
+        super().__init__(**kwargs)
+        node_action_space_dims = tuple([self.num_nodes + self.reject_action]) * self.max_vnet_size
+        path_action_space_dims = tuple([(self.k_paths * self.num_selectable_slots) + self.reject_action]) * self.max_vnet_size
+        # Merge the tuples
+        action_space_dims = node_action_space_dims + path_action_space_dims
+        # Action space sizes are maximum corresponding table size for maximum request size
+        self.action_space = gym.spaces.MultiDiscrete(
+            action_space_dims
+        )
+
+    def select_nodes_paths_slots(self, action):
+        """Get selected nodes, paths, and slots from action."""
+
+        nodes_selected = action[:self.max_vnet_size]
+        k_path_selected = [floor(dim / self.num_selectable_slots) for dim in action[self.max_vnet_size:]]
+        initial_slot_selected = [dim % self.num_selectable_slots for dim in action[self.max_vnet_size:]]
+
+        # Assign selections to environment attributes
+        self.assign_selections(nodes_selected, k_path_selected, initial_slot_selected)
+
+        return nodes_selected, k_path_selected, initial_slot_selected, {}
+
+    def mask_nodes(self, vnet_size, curr_selection):
+        """Mask nodes based on node capacities."""
+        node_capacities = self.current_observation["node_capacities"]
+        # Set elements to True if node capacity is sufficient
+        node_masks = [np.greater_equal(node_capacities, cap) for cap in self.current_VN_capacity]
+        # Create a new array with node_mask as a column and as many columns as items in nodes_selected
+        total_mask_2d = np.column_stack(node_masks)
+
+        # Check for prior selected nodes
+        if curr_selection:
+            # Get previously selected paths and slots
+            nodes_selected = curr_selection[-1][0]
+            # Set the items in the new array to 0 at the indices specified in nodes_selected
+            for col, idx in enumerate(nodes_selected):
+                total_mask_2d[idx, col:] = False
+
+        total_mask_2d_df = pd.DataFrame(total_mask_2d)
+
+        # Add reject action at index 0 (always selectable)
+        if self.reject_action:
+            total_mask_2d_df.loc[-1] = [1]*self.max_vnet_size  # adding a row
+            total_mask_2d_df.index = total_mask_2d_df.index + 1  # shifting index
+            total_mask_2d_df = total_mask_2d_df.sort_index()  # sorting by index
+
+        total_mask_1d = np.concatenate([total_mask_2d_df[n] for n in range(vnet_size)], axis=0).astype(int)
+
+        # Convert to 1s and 0s
+        return 1 * total_mask_1d
+
+    def action_masks(self):
+        """Mask actions based on node capacities."""
+        # Check compatible with masking
+        request_size = self.current_VN_capacity.size
+        curr_selection = self.curr_selection
+        skip_node_masking = False
+        if self.curr_selection:
+            curr_selection = self.curr_selection[request_size-1:] if len(self.curr_selection) >= request_size else None
+            skip_node_masking = True if len(self.curr_selection) >= request_size else False
+        node_mask = self.node_mask if skip_node_masking else self.mask_nodes(request_size, self.curr_selection)
+        path_mask = self.mask_paths(request_size, curr_selection)
+        self.node_mask = node_mask
+        self.path_mask = path_mask
+        return np.concatenate((node_mask, path_mask))
+
+    # TODO - Make necessary changes to the selection dicts etc to support different vnets
+    # TODO - See if changes required to observation to support different vnet sizes/topologies
+    # TODO - Test this

@@ -68,6 +68,10 @@ if __name__ == "__main__":
     conf["env_args"]["reward_failure"] = args.reward_failure
     conf["env_args"]["reject_action"] = args.reject_action
     conf["env_args"]["use_afterstate"] = args.use_afterstate
+    conf["env_args"]["topology_name"] = args.topology_name
+    conf["env_args"]["num_nodes"] = args.num_nodes
+    conf["env_args"]["connectivity"] = args.connectivity
+    conf["env_args"]["ws_rewire_prob"] = args.ws_rewire_prob
     # Setup environment
     env = [
         make_env(conf["env_name"], seed=i, **conf["env_args"])
