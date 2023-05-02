@@ -657,13 +657,17 @@ class VoneEnv(gym.Env):
         return observation, reward, terminated, False, info
 
     def get_links_from_selection(self, nodes_selected, k_path_selected, adjacency_list=((0, 1), (1, 2), (0, 2))):
-        path_list = [
-           self.link_selection_dict[
-               nodes_selected[adj[0]], nodes_selected[adj[1]]
-           ][
-               k_path_selected[i]
-           ] for i, adj in enumerate(adjacency_list)
-        ]
+        try:
+            path_list = [
+               self.link_selection_dict[
+                   nodes_selected[adj[0]], nodes_selected[adj[1]]
+               ][
+                   k_path_selected[i]
+               ] for i, adj in enumerate(adjacency_list)
+            ]
+        except IndexError:
+            print(f"IndexError: n {nodes_selected}, k {k_path_selected}")
+            raise IndexError
         return path_list
 
     def vnet_size_distribution(self, dist_name):
