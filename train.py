@@ -152,6 +152,11 @@ if __name__ == "__main__":
         art.add_file(model_save_file.resolve())
         wandb.log_artifact(art)
 
+    # Save topology for re-use
+    if conf["env_args"]["topology_name"] == "acmn" or "ws_acmn":
+        print(f"Saving graph to: {model_save_file.parent}/graph.pkl")
+        env.envs[0].save_topology(model_save_file.parent / "graph.adjlist")
+
     env.close()
 
     if not args.no_wandb:

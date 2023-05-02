@@ -922,6 +922,9 @@ class VoneEnv(gym.Env):
         logger.info(f"SN_slots: {SN_slots}")
         logger.info(f"No. of services: {len(self.allocated_Service)}")
 
+    def save_topology(self, path: str):
+        self.topology.save_topology(path)
+
 
 class VoneEnvNodes(VoneEnv):
 
@@ -1119,11 +1122,14 @@ class VoneEnvMultiDim(VoneEnv):
         request_size = self.current_VN_capacity.size
         curr_selection = self.curr_selection
         skip_node_masking = False
+        skip_path_masking = False
         if self.curr_selection:
             curr_selection = self.curr_selection[request_size-1:] if len(self.curr_selection) >= request_size else None
             skip_node_masking = True if len(self.curr_selection) >= request_size else False
+            nodes_selected = self.curr_selection[-1][0]
+            skip_path_masking = True if len(np.unique(nodes_selected)) != len(nodes_selected) else False
         node_mask = self.node_mask if skip_node_masking else self.mask_nodes(request_size, self.curr_selection)
-        path_mask = self.mask_paths(request_size, curr_selection)
+        path_mask = self.path_mask if skip_path_masking else self.mask_paths(request_size, curr_selection)
         self.node_mask = node_mask
         self.path_mask = path_mask
         return np.concatenate((node_mask, path_mask))
