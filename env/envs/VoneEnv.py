@@ -254,7 +254,7 @@ class VoneEnv(gym.Env):
 
     def init_topology(self):
         """Initialise topology based on contents of config dir"""
-        if self.topology_path:
+        if self.topology_path and self.topology_name != "conus":
             self.topology_path = self.topology_path / self.topology_name
             self.topology.load_topology(f"{self.topology_path.absolute()}.adjlist")
         elif self.topology_name == "nsfnet":
