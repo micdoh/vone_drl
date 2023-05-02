@@ -7,6 +7,15 @@ from typing import Generator, Any, Callable
 import logging
 import argparse
 import time
+import json
+import networkx as nx
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
+import geopandas as gpd
+import contextily as ctx
+from geopy.geocoders import Nominatim
+import time
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -348,3 +357,120 @@ def timeit(f):
         return result
 
     return timed
+
+
+def create_conus(connections):
+    G = nx.Graph()
+
+    # Helper function to extract city name from a node
+    def extract_city(node):
+        city_regex = r'\b([A-Z][a-z]+(_[A-Z][a-z]+)?)\b'
+        match = re.search(city_regex, node)
+        return match.group(1) if match else None
+
+    # First pass: Create unique city nodes
+    city_nodes = set()
+    for connection in connections:
+        from_node = connection['from_node']
+        to_node = connection['to_node']
+
+        # Extract city names from nodes
+        from_city = extract_city(from_node)
+        to_city = extract_city(to_node)
+
+        if from_city:
+            city_nodes.add(from_city)
+        if to_city:
+            city_nodes.add(to_city)
+
+    # Add unique city nodes to the graph
+    geolocator = Nominatim(user_agent="geoapiExercises")
+    city_coords = {city: (geolocator.geocode(city + ', USA').latitude, geolocator.geocode(city + ', USA').longitude) for
+                   city in city_nodes}
+    for city, coords in city_coords.items():
+        G.add_node(city, pos=coords)
+
+    # Collect unique edges in a set
+    unique_edges = set()
+    for connection in connections:
+        from_node = connection['from_node']
+        to_node = connection['to_node']
+
+        from_city = extract_city(from_node)
+        to_city = extract_city(to_node)
+
+        # Add an edge between the city nodes if both cities are present and the edge doesn't exist
+        if from_city == to_city:
+            continue
+        if from_city and to_city:
+            edge = tuple(sorted((from_city, to_city)))  # Sort the cities to ensure consistent ordering
+            unique_edges.add(edge)
+
+    # Add unique edges to the graph
+    for edge in unique_edges:
+        G.add_edge(*edge)
+
+    # Remove underscores from names
+    G = nx.relabel_nodes(G, {node: node.replace('_', ' ') for node in G.nodes})
+
+    return G
+
+
+def load_conus_topology(path, drop_types=[], plot=False):
+
+    with open(path, 'r') as file:
+        conus_data = json.load(file)
+    G = create_conus(conus_data["connections"])
+    G = nx.convert_node_labels_to_integers(G, label_attribute="name")
+
+    if plot:
+        # Get coordinates from the graph
+        pos = nx.get_node_attributes(G, 'pos')
+
+        # Create a GeoDataFrame with the city coordinates
+        gdf = gpd.GeoDataFrame(
+            geometry=gpd.points_from_xy([lon for lat, lon in pos.values()], [lat for lat, lon in pos.values()]),
+            index=pos.keys())
+        gdf.crs = 'EPSG:4326'
+        gdf = gdf.to_crs('EPSG:3857')
+
+        # Create the plot using Seaborn, Matplotlib, and Contextily
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        # Plot the nodes and edges
+        for edge in G.edges:
+            edge_coords = [gdf.loc[edge[0], 'geometry'], gdf.loc[edge[1], 'geometry']]
+            ax.plot([edge_coords[0].x, edge_coords[1].x], [edge_coords[0].y, edge_coords[1].y], color='darkblue', linewidth=5, zorder=1)
+
+        ax.scatter(gdf.geometry.x, gdf.geometry.y, facecolors='white', edgecolors='blue', linewidths=2, s=400, zorder=2)
+
+        # Add node labels
+        for node, attributes in G.nodes(data=True):
+            coord = gdf.loc[node, 'geometry']
+            ax.text(coord.x, coord.y, node, ha='center', va='center', fontsize=15, zorder=3)
+
+        # Remove the grid, legend, and axis labels
+        ax.grid(False)
+        ax.legend().set_visible(False)
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        # Set the aspect ratio to make the map look correct
+        ax.set_aspect('equal', adjustable='box')
+
+        # Save the plot to a file
+        plt.savefig("conus_topology.png", dpi=300, bbox_inches='tight', pad_inches=0)
+
+        # Show the plot
+        plt.show()
+
+    return G
+
+
+if __name__ == "__main__":
+    conus = load_conus_topology('./topologies/CORONET_CONUS_Topology.json', plot=True)
+    for node, attrs in conus.nodes(data=True):
+        print(f"Node: {node}, Attributes: {attrs}")
+    print(conus)

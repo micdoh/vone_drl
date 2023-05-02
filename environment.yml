@@ -28,3 +28,6 @@ dependencies:
       - git+https://github.com/DLR-RM/stable-baselines3
       - geneticalgorithm
       - ray
+      - geopy
+      - geopandas
+      - contextily

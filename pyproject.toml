@@ -38,6 +38,10 @@ stable-baselines3 = {git = "https://github.com/DLR-RM/stable-baselines3", branch
 #torchvision = { version = "*", source = "pytorch", markers = "sys_platform != 'darwin'", optional = true}
 pyyaml = "^6.0"
 seaborn = "^0.12.2"
+geopy = "^2.3.0"
+folium = "^0.14.0"
+geopandas = "^0.12.2"
+contextily = "^1.3.0"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]

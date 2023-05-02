@@ -14,7 +14,7 @@ from pathlib import Path
 from collections import defaultdict
 from networktoolbox.NetworkToolkit.Topology import Topology
 from heuristics import select_path_fdl, select_path_ff, select_path_msp_ef, select_nodes
-from util_funcs import timeit, conditional_decorator
+from util_funcs import timeit, conditional_decorator, load_conus_topology
 
 timing = False
 np.seterr(all='raise')
@@ -275,6 +275,8 @@ class VoneEnv(gym.Env):
             self.topology.create_WS_ACMN(
                 self.num_nodes, self.connectivity, self.ws_rewire_prob
             )
+        elif self.topology_name == "conus":
+            self.topology.init_custom_topology(self.topology_path, load_conus_topology)
         else:
             raise Exception(
                 f"Invalid topology name without specified path: {self.topology_name} \n"
