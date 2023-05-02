@@ -1097,8 +1097,8 @@ class VoneEnvMultiDim(VoneEnv):
             # Get previously selected paths and slots
             nodes_selected = curr_selection[-1][0]
             # Set the items in the new array to 0 at the indices specified in nodes_selected
-            for col, idx in enumerate(nodes_selected):
-                total_mask_2d[idx, col:] = False
+            for col, idx in enumerate(nodes_selected[:-1]):
+                total_mask_2d[idx, col+1:] = False
 
         total_mask_2d_df = pd.DataFrame(total_mask_2d)
 
@@ -1128,6 +1128,7 @@ class VoneEnvMultiDim(VoneEnv):
         self.path_mask = path_mask
         return np.concatenate((node_mask, path_mask))
 
-    # TODO - Make necessary changes to the selection dicts etc to support different vnets
-    # TODO - See if changes required to observation to support different vnet sizes/topologies
+    # TODO - Make necessary changes to the selection dicts etc to support different vnet topologies
+    # TODO - Make changes to masking to support different vnet topologies
+    # TODO - See if changes required to observation to support different vnet topologies
     # TODO - Test this
