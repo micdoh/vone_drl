@@ -69,6 +69,7 @@ if __name__ == "__main__":
     conf["env_args"]["reject_action"] = args.reject_action
     conf["env_args"]["use_afterstate"] = args.use_afterstate
     conf["env_args"]["topology_name"] = args.topology_name
+    conf["env_args"]["topology_path"] = args.topology_file
     conf["env_args"]["num_nodes"] = args.num_nodes
     conf["env_args"]["connectivity"] = args.connectivity
     conf["env_args"]["ws_rewire_prob"] = args.ws_rewire_prob

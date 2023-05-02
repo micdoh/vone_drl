@@ -219,6 +219,9 @@ def parse_args():
         "--topology_name", default="nsfnet", type=str, help="Name of topology"
     )
     parser.add_argument(
+        "--topology_file", default="", type=str, help="Path to topology file"
+    )
+    parser.add_argument(
         "--num_nodes", default=14, type=int, help="Number of nodes in topology"
     )
     parser.add_argument(
