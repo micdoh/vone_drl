@@ -182,6 +182,9 @@ if __name__ == "__main__":
         "--heur_eval_file_1", default="", type=str, help="Path to heuristics csv file"
     )
     parser.add_argument(
+        "--heur_eval_file_2", default="", type=str, help="Path to heuristics csv file"
+    )
+    parser.add_argument(
         "--node_eval_file", default="", type=str, help="Path to node agent csv file"
     )
     parser.add_argument(
@@ -272,10 +275,12 @@ if __name__ == "__main__":
     combined_eval = Path(args.combined_eval_file)
     heur_eval = Path(args.heur_eval_file)
     heur_eval_1 = Path(args.heur_eval_file_1)
+    heur_eval_file_2 = Path(args.heur_eval_file_2)
 
     combined_eval_df = pd.read_csv(combined_eval)
     heur_eval_df = pd.read_csv(heur_eval)
     heur_eval_1_df = pd.read_csv(heur_eval_1)
+    heur_eval_2_df = pd.read_csv(heur_eval_file_2)
 
     if args.use_tex:
         rc('text', usetex=True)
@@ -283,9 +288,9 @@ if __name__ == "__main__":
 
     fig, ax = plt.subplots()
     clrs = sns.color_palette("husl", 5)
-    labels = ["Combined Agent", "NSC-kSP-FF", "CaLRC-kSP-FF"]
+    labels = ["Agent", "CaLRC-kSP-FF", "NSC-kSP-FF", "Random Masked"]
     with sns.axes_style("darkgrid"):
-        for i, df in enumerate([combined_eval_df, heur_eval_df, heur_eval_1_df]):
+        for i, df in enumerate([combined_eval_df, heur_eval_df, heur_eval_1_df, heur_eval_2_df]):
             ax.plot(df["load"], df["blocking"], label=labels[i], c=clrs[i])
             ax.fill_between(df["load"], df["blocking"] - df["blocking_std"], df["blocking"] + df["blocking_std"], alpha=0.3, facecolor=clrs[i])
             ax.legend(loc="lower right")
