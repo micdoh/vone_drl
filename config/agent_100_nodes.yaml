@@ -16,4 +16,4 @@ env_args:
     max_vnet_size: 3
     vnet_size_dist: fixed
     num_nodes: 100
-    connectivity: 0.8
+    connectivity: 0.1
