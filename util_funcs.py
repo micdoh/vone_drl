@@ -11,9 +11,7 @@ import json
 import networkx as nx
 import re
 import matplotlib.pyplot as plt
-import seaborn as sns
 import geopandas as gpd
-import contextily as ctx
 from geopy.geocoders import Nominatim
 import time
 
@@ -416,7 +414,7 @@ def create_conus(connections):
     return G
 
 
-def load_conus_topology(path, drop_types=[], plot=False):
+def load_conus_topology(path, plot=False):
 
     with open(path, 'r') as file:
         conus_data = json.load(file)
