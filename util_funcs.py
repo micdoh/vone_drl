@@ -360,14 +360,16 @@ def timeit(f):
     return timed
 
 
-def create_conus(connections):
+def create_conus(connections, locations=False):
     G = nx.Graph()
 
     # Helper function to extract city name from a node
-    def extract_city(node):
-        city_regex = r'\b([A-Z][a-z]+(_[A-Z][a-z]+)?)\b'
-        match = re.search(city_regex, node)
-        return match.group(1) if match else None
+    def extract_city(node_name):
+        """
+        Given a node name, extracts all city names from the node name using regex.
+        """
+        matches = re.findall(r'[A-Z][a-z_]+\s*[A-Za-z_]+', node_name)
+        return matches if matches else None
 
     # First pass: Create unique city nodes
     city_nodes = set()
@@ -380,16 +382,25 @@ def create_conus(connections):
         to_city = extract_city(to_node)
 
         if from_city:
-            city_nodes.add(from_city)
+            for city in from_city:
+                city_nodes.add(city)
         if to_city:
-            city_nodes.add(to_city)
+            for city in to_city:
+                city_nodes.add(city)
 
-    # Add unique city nodes to the graph
-    geolocator = Nominatim(user_agent="geoapiExercises")
-    city_coords = {city: (geolocator.geocode(city + ', USA').latitude, geolocator.geocode(city + ', USA').longitude) for
-                   city in city_nodes}
-    for city, coords in city_coords.items():
-        G.add_node(city, pos=coords)
+    # Sort city nodes alphabetically
+    city_nodes = sorted(list(city_nodes))
+
+    if locations:
+        # Add unique city nodes to the graph with locations
+        geolocator = Nominatim(user_agent="geoapiExercises")
+        city_coords = {city: (geolocator.geocode(city + ', USA').latitude, geolocator.geocode(city + ', USA').longitude) for
+                       city in city_nodes}
+        for city, coords in city_coords.items():
+            G.add_node(city, pos=coords)
+    else:
+        for city in city_nodes:
+            G.add_node(city)
 
     # Collect unique edges in a set
     unique_edges = set()
@@ -397,15 +408,17 @@ def create_conus(connections):
         from_node = connection['from_node']
         to_node = connection['to_node']
 
-        from_city = extract_city(from_node)
-        to_city = extract_city(to_node)
+        from_cities = extract_city(from_node)
+        to_cities = extract_city(to_node)
 
         # Add an edge between the city nodes if both cities are present and the edge doesn't exist
-        if from_city == to_city:
-            continue
-        if from_city and to_city:
-            edge = tuple(sorted((from_city, to_city)))  # Sort the cities to ensure consistent ordering
-            unique_edges.add(edge)
+        for from_city in from_cities:
+            for to_city in to_cities:
+                if from_city == to_city:
+                    continue
+                if from_city and to_city:
+                    edge = tuple(sorted((from_city, to_city)))
+                    unique_edges.add(edge)
 
     # Add unique edges to the graph
     for edge in unique_edges:
@@ -421,10 +434,10 @@ def load_conus_topology(path, plot=False):
 
     with open(path, 'r') as file:
         conus_data = json.load(file)
-    G = create_conus(conus_data["connections"])
-    G = nx.convert_node_labels_to_integers(G, label_attribute="name")
+    G = create_conus(conus_data["connections"], locations=plot)
 
     if plot:
+        G = nx.convert_node_labels_to_integers(G, label_attribute="name")
         # Get coordinates from the graph
         pos = nx.get_node_attributes(G, 'pos')
 
@@ -474,4 +487,6 @@ if __name__ == "__main__":
     conus = load_conus_topology('./topologies/CORONET_CONUS_Topology.json', plot=True)
     for node, attrs in conus.nodes(data=True):
         print(f"Node: {node}, Attributes: {attrs}")
+        # Print edge data
+        print(f"Edges: {conus.edges(node, data=True)}")
     print(conus)

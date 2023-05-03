@@ -596,6 +596,8 @@ class VoneEnv(gym.Env):
                             fail_info = fail_messages["slot_reuse"]
 
                     if fail_info:
+                        #mask_indices = [n*5*self.num_selectable_slots + ks[0]*self.num_selectable_slots + ks[1] - 1 for n, ks in enumerate(zip(list(k_path_selected), list(initial_slot_selected)))]
+                        #mask_vals = [self.path_mask[i] for i in mask_indices]
                         logger.info(fail_info.get("message"))
 
             else:
@@ -657,17 +659,27 @@ class VoneEnv(gym.Env):
         return observation, reward, terminated, False, info
 
     def get_links_from_selection(self, nodes_selected, k_path_selected, adjacency_list=((0, 1), (1, 2), (0, 2))):
-        try:
-            path_list = [
-               self.link_selection_dict[
-                   nodes_selected[adj[0]], nodes_selected[adj[1]]
-               ][
-                   k_path_selected[i]
-               ] for i, adj in enumerate(adjacency_list)
-            ]
-        except IndexError:
-            print(f"IndexError: n {nodes_selected}, k {k_path_selected}")
-            raise IndexError
+        path_list = []
+        for i, adj in enumerate(adjacency_list):
+            try:
+                path_list.append(
+                    self.link_selection_dict[nodes_selected[adj[0]], nodes_selected[adj[1]]][k_path_selected[i]]
+                )
+            except IndexError:
+                print(f"Node path options: {[(nodes_selected[adj[0]], nodes_selected[adj[1]], self.link_selection_dict[nodes_selected[adj[0]], nodes_selected[adj[1]]]) for adj in adjacency_list]} ")
+                path_list.append(None)
+        # try:
+        #     path_list = [
+        #        self.link_selection_dict[
+        #            nodes_selected[adj[0]], nodes_selected[adj[1]]
+        #        ][
+        #            k_path_selected[i]
+        #        ] for i, adj in enumerate(adjacency_list)
+        #     ]
+        # except IndexError as e:
+        #     print(f"Node path options: {[(nodes_selected[adj[0]], nodes_selected[adj[1]], self.link_selection_dict[nodes_selected[adj[0]], nodes_selected[adj[1]]]) for adj in adjacency_list]} ")
+        #     print(f"IndexError: n {nodes_selected}, k {k_path_selected}")
+        #     raise e
         return path_list
 
     def vnet_size_distribution(self, dist_name):
@@ -704,8 +716,7 @@ class VoneEnv(gym.Env):
         capacity = self.topology.topology_graph.nodes[n]["capacity"]
         return True if capacity > capacity_required else False
 
-    @staticmethod
-    def get_path_slots(path, topology):
+    def get_path_slots(self, path, topology):
         """Return array of slots used by path.
 
         Args:
@@ -714,6 +725,8 @@ class VoneEnv(gym.Env):
         Returns:
             path_slots: Array of slots that are either free or occupied along all links in path
         """
+        if path is None:
+            return np.zeros(self.num_slots)
         path_slots = [topology.edges[path[i], path[i + 1]]["slots"] for i in range(len(path)-1)]
         path_slots = np.stack(path_slots, axis=0)
         path_slots = np.min(path_slots, axis=0)
@@ -1104,9 +1117,9 @@ class VoneEnvMultiDim(VoneEnv):
         # Check for prior selected nodes
         if curr_selection:
             # Get previously selected paths and slots
-            nodes_selected = curr_selection[-1][0]
+            nodes_selected = curr_selection[-1][0][:len(curr_selection)]
             # Set the items in the new array to 0 at the indices specified in nodes_selected
-            for col, idx in enumerate(nodes_selected[:-1]):
+            for col, idx in enumerate(nodes_selected):
                 total_mask_2d[idx, col+1:] = False
 
         total_mask_2d_df = pd.DataFrame(total_mask_2d)
@@ -1128,7 +1141,7 @@ class VoneEnvMultiDim(VoneEnv):
         request_size = self.current_VN_capacity.size
         curr_selection = self.curr_selection
         skip_node_masking = False
-        skip_path_masking = False
+        skip_path_masking = False  # Only used in the case that multiple same nodes selected (which can occur when all nodes masked)
         if self.curr_selection:
             curr_selection = self.curr_selection[request_size-1:] if len(self.curr_selection) >= request_size else None
             skip_node_masking = True if len(self.curr_selection) >= request_size else False

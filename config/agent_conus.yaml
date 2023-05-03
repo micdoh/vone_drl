@@ -7,11 +7,11 @@ env_args:
     k_paths: 5
     topology_name: conus
     num_slots: 320
-    node_capacity: 60
+    node_capacity: 40
     min_node_cap_request: 1
     max_node_cap_request: 2
     min_slot_request: 2
-    max_slot_request: 12
+    max_slot_request: 10
     min_vnet_size: 3
     max_vnet_size: 3
     vnet_size_dist: fixed
