@@ -61,6 +61,9 @@ if __name__ == "__main__":
         default="select_nodes_paths_slots",
         help="Specify function that interprets actions in the env. To be used in multistep action masking.",
     )
+    parser.add_argument(
+        "--dont_use_node_table", action="store_true", help="Don't use table to convert selected nodes to action ints"
+    )
     args = parser.parse_args()
 
     conf = yaml.safe_load(Path(args.env_file).read_text())
@@ -89,7 +92,8 @@ if __name__ == "__main__":
             result, timestep_info_df = run_heuristic(
                 the_env,
                 node_heuristic=args.node_heuristic,
-                path_heuristic=args.path_heuristic
+                path_heuristic=args.path_heuristic,
+                use_node_table=args.dont_use_node_table,
             ) if not args.random else run_random_masked_heuristic(
                 the_env,
                 action_interpreter=args.action_interpreter,

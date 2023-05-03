@@ -672,7 +672,7 @@ def select_nodes(env: gym.Env, topology: Graph, heuristic: str = "nsc", betweenn
     return selected_nodes, fail_info
 
 
-def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic: str = "ff", combined: bool = True):
+def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic: str = "ff", combined: bool = True, use_node_table=True):
     """
 
     Args:
@@ -716,8 +716,12 @@ def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic:
             # Store those integers here
             action_ints = []
 
-            # Find row in node selection table that matches desired action
-            action_ints.append(np.where(np.all(node_table == action_node, axis=1))[0][0])
+            if use_node_table:
+                # Find row in node selection table that matches desired action
+                action_ints.append(np.where(np.all(node_table == action_node, axis=1))[0][0])
+            else:
+                # Add node selection to action
+                action_ints.extend(action_node)
 
             # If using combined path-slot selection
             if combined:
