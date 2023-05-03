@@ -110,6 +110,8 @@ if __name__ == "__main__":
 
         # Getting the mean reward and blocking prob. across episodes
         df = pd.DataFrame([df.mean().to_dict()])
+        df["node_heuristic"] = args.node_heuristic
+        df["path_heuristic"] = args.path_heuristic
 
         df.to_csv(data_file, mode='a', header=not os.path.exists(data_file))
         print(f"ep {ep} done")

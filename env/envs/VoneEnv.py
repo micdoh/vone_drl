@@ -20,13 +20,7 @@ timing = False
 np.seterr(all='raise')
 logger = logging.getLogger(__name__)
 
-# TODO - Functionalise KMC-FF, KMF-FF
-# TODO - Define Selector class that would allow kSP-FF, -FDL, random, NSC, KMC, etc. to be easily interchanged
-# TODO - IDEA: Abstract the number of slots per link and number of resources per node in to a ratio, such that the
-#  network is resources are completely specific by this ratio and a scalar value for the number of slots per link.
-#  The relative importance of nodes v slots in the problem will be determined by
-#  the available resources AND the mean request size
-#  (e.g. if mean request is 2 node units and 3 slots, one would expect a 2:3 ratio of nodes to slots to be balanced)
+# TODO - More sophisticated masking: mask nodes on whether a free path exists between nodes i.e. alternate node choice, (*evaluate paths*), node_choice, path choice, etc.,
 
 fail_messages = {
     "node_mapping": {"code": 1, "message": "Node mapping failure"},
