@@ -62,7 +62,7 @@ if __name__ == "__main__":
         help="Specify function that interprets actions in the env. To be used in multistep action masking.",
     )
     parser.add_argument(
-        "--dont_use_node_table", action="store_true", help="Don't use table to convert selected nodes to action ints"
+        "--use_node_table", action="store_true", help="Don't use table to convert selected nodes to action ints"
     )
     args = parser.parse_args()
 
@@ -70,7 +70,8 @@ if __name__ == "__main__":
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     data_file = Path(args.output_file).parent / start_time / Path(args.output_file).name
-    timestep_data_file = data_file.parent / Path(args.timestep_output_file).name
+    if args.timestep_output_file:
+        timestep_data_file = data_file.parent / Path(args.timestep_output_file).name
     data_file.parent.mkdir(exist_ok=True)
 
     for load in range(args.min_load, args.max_load+1, args.load_step):
@@ -93,7 +94,7 @@ if __name__ == "__main__":
                 the_env,
                 node_heuristic=args.node_heuristic,
                 path_heuristic=args.path_heuristic,
-                use_node_table=args.dont_use_node_table,
+                use_node_table=args.use_node_table,
             ) if not args.random else run_random_masked_heuristic(
                 the_env,
                 action_interpreter=args.action_interpreter,
@@ -101,8 +102,10 @@ if __name__ == "__main__":
                 multistep_masking_attr=args.multistep_masking_attr
             )
             results.append(result)
+
             # Write timestep info to file
-            timestep_info_df.to_csv(timestep_data_file, mode='a', header=not os.path.exists(timestep_data_file))
+            if args.timestep_output_file:
+                timestep_info_df.to_csv(timestep_data_file, mode='a', header=not os.path.exists(timestep_data_file))
 
         df = pd.DataFrame(results)
 
