@@ -6,7 +6,7 @@ env_args:
     mean_service_holding_time: 10
     k_paths: 5
     topology_name: conus
-    topology_path: ./topology/CORONET_CONUS_Topology.json
+    topology_path: ./topologies/CORONET_CONUS_Topology.json
     num_slots: 320
     node_capacity: 40
     min_node_cap_request: 1
