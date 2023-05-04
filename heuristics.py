@@ -388,7 +388,6 @@ def select_path_msp_ef(env: gym.Env, nodes_selected: [int], adjacency_list = ((0
         bw = env.current_VN_bandwidth[i_req]
 
         tightest_path_fit, fail_info = calc_shortest_weighted_path(topology, path_dict, i_req, bw)
-        #tightest_path_fit, fail_info = calc_tightest_mf_path_weight(env, topology, path_dict, i_req, bw)
 
         k_paths_selected.append(tightest_path_fit)
 
@@ -403,19 +402,19 @@ def select_path_msp_ef(env: gym.Env, nodes_selected: [int], adjacency_list = ((0
             initial_slots_selected = [0] * len(adjacency_list)
             break
 
-        print(f"k_path: {tightest_path_fit}")
-        print(f"slot: {tightest_slot_fit}")
-        print(f"bw: {bw}")
-        print(f"path: {path}")
+        # print(f"k_path: {tightest_path_fit}")
+        # print(f"slot: {tightest_slot_fit}")
+        # print(f"bw: {bw}")
+        # print(f"path: {path}")
 
         # Assign slots on each link of path on topology copy
         for l in range(len(path) - 1):
-            slots = topology.edges[path[l], path[l + 1]]["slots"]
-            print(f"Slots: {slots}")
+            #print(f"Path: {path[l], path[l + 1]}")
+            #print(f"Slots: {topology.edges[path[l], path[l + 1]]['slots']}")
             topology.edges[path[l], path[l + 1]]["slots"][
             tightest_slot_fit: tightest_slot_fit + bw
             ] -= 1
-            print(f"Slots after: {topology.edges[path[l], path[l + 1]]['slots']}")
+            #print(f"Slots after: {topology.edges[path[l], path[l + 1]]['slots']}")
 
     return k_paths_selected, initial_slots_selected, fail_info
 
@@ -431,7 +430,7 @@ def calc_tightest_mf_path_weight(env, graph, path_dict, i_req, bw):
         weight = 1e6 if weight == 0 else weight
         weights.append(weight*(len(path)-1))
     tightest_fit_index = weights.index(min(weights))
-    print(f"Path {k}: {path}, weights: {weights}, tightest fit: {tightest_fit_index}")
+    #print(f"Path {k}: {path}, weights: {weights}, tightest fit: {tightest_fit_index}")
     fail_info = fail_messages["path_mapping"] if all(x == 0 for x in weights) else {}
     return tightest_fit_index, fail_info
 
@@ -454,9 +453,10 @@ def calc_shortest_weighted_path(graph, path_dict, i_req, bw):
             min_weight = path_weight
             shortest_path = k
             fail_info = fail_messages["path_mapping"] if all(x == 0 for x in weights) else {}
-        print(f"Path {k}: {path}, weights: {weights}, path_weight: {path_weight}, min_weight: {min_weight}")
+        #print(f"Path {k}: {path}, weights: {weights}, path_weight: {path_weight}, min_weight: {min_weight}")
 
     return shortest_path, fail_info
+
 
 def find_nth_block_index(slots, n):
     occurrences = np.where(slots >= 1)[0]
@@ -465,12 +465,12 @@ def find_nth_block_index(slots, n):
 
 def find_tightest_slot(env, graph, path, bw):
     path_slots = env.get_path_slots(path, graph)
-    print(f"path_slots: {path_slots}")
+    #print(f"path_slots: {path_slots}")
     block_sizes = find_blocks(path_slots, size_until_end=False)
     weights = np.maximum(((block_sizes - bw) / np.maximum(block_sizes, 1)) + 1e-5, 0)
     weights = np.where(weights == 0, 1e6, weights)
     tightest_fit_index = np.argmin(weights)
-    print(f"block_sizes: {block_sizes}, weights: {weights}, tightest_fit_index: {tightest_fit_index}")
+    #print(f"block_sizes: {block_sizes}, weights: {weights}, tightest_fit_index: {tightest_fit_index}")
     fail_info = fail_messages["slot_mapping"] if all(x == 0 for x in weights) else {}
     return int(tightest_fit_index), fail_info
 
@@ -550,16 +550,19 @@ def rank_nodes_mf(graph, betweenness):
         ranking: List of tuples of (mf, node_index, capacity) i.e. ranking of substrate nodes
     """
     rank = []
+    total_asc = 0
+    for node in graph.nodes:
+        total_asc += sum([calc_link_asc(link) for _, _, link in graph.edges(node, data=True)])
     for node in graph.nodes:
         capacity = graph.nodes[node]["capacity"]
         cap_factor = (capacity / sum(graph.nodes[n]["capacity"] for n in graph.nodes))
         asc_factor = sum([calc_link_asc(link) for _, _, link in graph.edges(node, data=True)]) / \
-                     sum([calc_link_asc(link) for _, _, link in graph.edges(data=True)])
+                    total_asc#sum([calc_link_asc(link) for _, _, link in graph.edges(data=True)])
         mrcc = cap_factor * asc_factor
         mf = mrcc * math.exp(-betweenness[node]+1)
         rank.append((mf, node, capacity))
     rank.sort(reverse=True)
-    print(f"Ranking snodes: {rank}")
+    #print(f"Ranking snodes: {rank}")
     return rank
 
 
@@ -575,13 +578,16 @@ def rank_v_nodes_mrr(cap_request, bw_request, adjacency_list=((0, 1), (1, 2), (2
         ranking: List of tuples of (mrr, node_index, capacity) i.e. ranking of virtual nodes
     """
     rank = {}
+    adj_bw_sum = 0
+    for i in range(len(cap_request)):
+        adj_bw_sum = sum([bw_request[j] for j, adj in enumerate(adjacency_list) if i in adj])
     for n, cap in enumerate(cap_request):
         rank[n] = [0, cap]
         adj_bw_requests = sum([bw_request[j] for j, adj in enumerate(adjacency_list) if n in adj])
-        rank[n][0] = (cap/np.sum(cap_request)) * (adj_bw_requests / np.sum(bw_request))
+        rank[n][0] = (cap/np.sum(cap_request)) * (adj_bw_requests / adj_bw_sum) #np.sum(bw_request))
     rank = [(mrr[0], node, mrr[1]) for node, mrr in rank.items()]
     rank.sort(reverse=True)
-    print(f"Ranking vnodes: {rank}")
+    #print(f"Ranking vnodes: {rank}")
     return rank
 
 
@@ -672,7 +678,7 @@ def select_nodes(env: gym.Env, topology: Graph, heuristic: str = "nsc", betweenn
     return selected_nodes, fail_info
 
 
-def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic: str = "ff", combined: bool = True, use_node_table=True):
+def run_heuristic(the_env: gym.Env, node_heuristic: str = "nsc", path_heuristic: str = "ff", combined: bool = True, use_node_table: bool = True):
     """
 
     Args:
