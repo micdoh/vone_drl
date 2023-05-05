@@ -536,7 +536,7 @@ def calc_link_asc(link):
     available_slot_sum = np.sum(slots)
     num_slots = len(slots)
     num_blocks = count_blocks(slots)
-    return available_slot_sum / (num_slots * num_blocks)
+    return (available_slot_sum / (num_slots * num_blocks)) if (num_slots * num_blocks) != 0 else 0
 
 
 def rank_nodes_mf(graph, betweenness):
