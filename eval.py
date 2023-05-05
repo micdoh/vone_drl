@@ -43,7 +43,7 @@ if __name__ == "__main__":
         logger.warn(f"Downloading artifact {args.artifact}")
         api = wandb.Api()
         artifact = api.artifact(args.artifact)
-        model_file = artifact.download(root=Path(__file__).parent) / "eval" / "models" / f"{artifact.name.split(':')[0]}.zip"
+        model_file = artifact.download(root=Path(__file__).parent / "eval" / "models") / f"{artifact.name.split(':')[0]}.zip"
         print(model_file.resolve())
     else:
         model_file = args.model_file
