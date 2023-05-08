@@ -40,7 +40,7 @@
             - 256
     command:
       - ${env}
-      - ${interpreter}
+      - python3
       - ${program}
       - "--env_file"
       - "./config/agent_conus.yaml"
