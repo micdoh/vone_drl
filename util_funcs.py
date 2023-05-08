@@ -206,7 +206,7 @@ def parse_args():
     )
     parser.add_argument(
         "--use_afterstate",
-        action="store_true",
+        type=bool, default=False,
         help="Use afterstate as input to value function",
     )
     parser.add_argument(
