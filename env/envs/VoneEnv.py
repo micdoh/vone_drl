@@ -655,9 +655,10 @@ class VoneEnv(gym.Env):
     def get_links_from_selection(self, nodes_selected, k_path_selected, adjacency_list=((0, 1), (1, 2), (0, 2))):
         path_list = []
         for i, adj in enumerate(adjacency_list):
+            # TODO - Sometimes two nodes same are selected - check masking
             try:
                 path_list.append(
-                    self.link_selection_dict[nodes_selected[adj[0]], nodes_selected[adj[1]]][k_path_selected[i]]
+                    self.link_selection_dict.get((nodes_selected[adj[0]], nodes_selected[adj[1]]), [None]*self.k_paths)[k_path_selected[i]]
                 )
             except IndexError:
                 print(f"Node path options: {[(nodes_selected[adj[0]], nodes_selected[adj[1]], self.link_selection_dict[nodes_selected[adj[0]], nodes_selected[adj[1]]]) for adj in adjacency_list]} ")

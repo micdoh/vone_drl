@@ -105,11 +105,11 @@ if __name__ == "__main__":
     vf = [args.num_hidden_vf] * args.num_layers_vf if args.custom_vf else [args.num_hidden] * args.num_layers
 
     if args.batch_size < args.n_steps / 2:
-        batch_size = args.batch_size
+        batch_size = int(args.batch_size)
     elif args.batch_size == args.n_steps:
-        batch_size = args.n_steps
+        batch_size = int(args.n_steps)
     else:
-        batch_size = args.n_steps / 2
+        batch_size = int(args.n_steps / 2)
 
     # Create agent
     agent_kwargs = dict(
