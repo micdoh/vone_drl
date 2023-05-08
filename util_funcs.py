@@ -48,7 +48,7 @@ def parse_args():
     )
     parser.add_argument(
         "--n_epochs",
-        default=1,
+        default=10,
         type=int,
         help="No. of times to update ",
     )
@@ -189,7 +189,7 @@ def parse_args():
         "--total_timesteps",
         default=135000,
         type=int,
-        help="Specify type of policy to be used my agent",
+        help="Timesteps to run training for",
     )
     parser.add_argument(
         "-i", "--id", type=str, help="ID to name this evaluation run"
@@ -229,6 +229,21 @@ def parse_args():
     )
     parser.add_argument(
         "--ws_rewire_prob", default=0.1, type=float, help="Rewiring probability of topology"
+    )
+    parser.add_argument(
+        "num_layers", default=2, type=int, help="Number of layers in policy network",
+    )
+    parser.add_argument(
+        "--num_hidden", default=64, type=int, help="Number of hidden units in policy network",
+    )
+    parser.add_argument(
+        "--custom_vf", action="store_true", help="Use custom value function"
+    )
+    parser.add_argument(
+        "--num_layers_vf", default=2, type=int, help="Number of layers in value function network",
+    )
+    parser.add_argument(
+        "--num_hidden_vf", default=64, type=int, help="Number of hidden units in value function network",
     )
     return parser.parse_args()
 

@@ -99,6 +99,18 @@ if __name__ == "__main__":
 
     callback_list = CallbackList(callbacks)
 
+    # Define policy network architecture
+    pi = [args.num_hidden] * args.num_layers
+    # Define value function network architecture
+    vf = [args.num_hidden_vf] * args.num_layers_vf if args.custom_vf else [args.num_hidden] * args.num_layers
+
+    if args.batch_size < args.n_steps / 2:
+        batch_size = args.batch_size
+    elif args.batch_size == args.n_steps:
+        batch_size = args.n_steps
+    else:
+        batch_size = args.n_steps / 2
+
     # Create agent
     agent_kwargs = dict(
         verbose=0,
@@ -107,12 +119,13 @@ if __name__ == "__main__":
         learning_rate=choose_schedule(args.lr_schedule, args.learning_rate),
         gae_lambda=args.gae_lambda,
         n_steps=args.n_steps,
-        batch_size=args.batch_size if args.batch_size else args.n_steps,
+        batch_size=batch_size,
         clip_range=choose_schedule(args.clip_range_schedule, args.clip_range),
         clip_range_vf=choose_schedule(args.clip_range_vf_schedule, args.clip_range_vf),
         n_epochs=args.n_epochs,
         ent_coef=args.ent_coef,
         use_afterstate=args.use_afterstate,
+        policy_kwargs={"net_arch": dict(pi=[64, 64], vf=[64, 64])},
     )
     if args.multistep_masking:
         agent_kwargs.update(
