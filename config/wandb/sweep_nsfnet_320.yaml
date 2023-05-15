@@ -1,0 +1,57 @@
+    project: VONE-DRL
+    name: "320 NSFNET"
+    program: train.py
+    method: bayes
+    metric:
+      name: mean_reward
+      goal: maximize
+    parameters:
+      gamma:
+        min: 0.8
+        max: 0.98
+      learning_rate:
+        min: 0.0001
+        max: 0.001
+      n_steps:
+        values:
+          - 50
+          - 100
+          - 150
+          - 200
+          - 250
+          - 300
+      gae_lambda:
+        min: 0.9
+        max: 0.99
+      batch_size:
+        values:
+          - 25
+          - 50
+          - 100
+    command:
+      - ${env}
+      - python3
+      - ${program}
+      - "--env_file"
+      - "./config/agent_320.yaml"
+      - "--log"
+      - "WARN"
+      - "--total_timesteps"
+      - 500000
+      - "--masking"
+      - "--multistep_masking"
+      - "--multistep_masking_n_steps"
+      - 3
+      - "--save_model"
+      - "--reward_success"
+      - 0
+      - '--reward_failure'
+      - -10
+      - "--lr_schedule"
+      - "linear"
+      - ${args}
+    early_terminate:
+      eta: 2
+      min_iter: 6
+      s: 4
+      type: hyperband
