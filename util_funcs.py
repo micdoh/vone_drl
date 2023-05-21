@@ -245,6 +245,15 @@ def parse_args():
     parser.add_argument(
         "--num_hidden_vf", default=64, type=int, help="Number of hidden units in value function network",
     )
+    parser.add_argument(
+        "--decrease_min_slot_request", action="store_true", help="Decrease min slot request over time"
+    )
+    parser.add_argument(
+        "--step_min_slot_request", default=1, type=float, help="Step size for decreasing min slot request"
+    )
+    parser.add_argument(
+        "--ep_step_min_slot_request", default=10, type=int, help="Episode step size for decreasing min slot request"
+    )
     return parser.parse_args()
 
 
@@ -271,7 +280,7 @@ def init_logger(log_file: str, loglevel: str):
 
 def choose_schedule(schedule: str, initial_value: float):
     """Choose schedule for learning rate"""
-    if schedule is None:
+    if schedule is None or "constant":
         return initial_value
     elif schedule == "linear":
         return linear_schedule(initial_value)
