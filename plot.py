@@ -272,33 +272,94 @@ if __name__ == "__main__":
         plt.grid(True)
         plt.show()
 
-    combined_eval = Path(args.combined_eval_file)
-    heur_eval = Path(args.heur_eval_file)
-    heur_eval_1 = Path(args.heur_eval_file_1)
-    heur_eval_file_2 = Path(args.heur_eval_file_2)
+    # combined_eval = Path(args.combined_eval_file)
+    # heur_eval = Path(args.heur_eval_file)
+    # #heur_eval_1 = Path(args.heur_eval_file_1)
+    # #heur_eval_file_2 = Path(args.heur_eval_file_2)
+    #
+    # combined_eval_df = pd.read_csv(combined_eval)
+    # heur_eval_df = pd.read_csv(heur_eval)
+    # #heur_eval_1_df = pd.read_csv(heur_eval_1)
+    # #heur_eval_2_df = pd.read_csv(heur_eval_file_2)
+    #
+    # if args.use_tex:
+    #     rc('text', usetex=True)
+    #     rc('text.latex', preamble=r'\usepackage{cmbright}')
+    #
+    # fig, ax = plt.subplots()
+    # clrs = sns.color_palette("husl", 5)
+    # labels = ["Agent", "CaLRC-kSP-FF"]#, "NSC-kSP-FF", "Random Masked"]
+    # with sns.axes_style("darkgrid"):
+    #     for i, df in enumerate([combined_eval_df, heur_eval_df]):#, heur_eval_1_df, heur_eval_2_df]):
+    #         ax.plot(df["load"], df["blocking"], label=labels[i], c=clrs[i])
+    #         ax.fill_between(df["load"], df["blocking"] - df["blocking_std"], df["blocking"] + df["blocking_std"], alpha=0.3, facecolor=clrs[i])
+    #         ax.legend(loc="lower right")
+    #         ax.set_yscale('log')
+    #
+    # #plt.plot(combined_eval_df["load"], combined_eval_df["blocking"], label="Agent", marker="d", color='g')
+    # #plt.plot(heur_eval_df["load"], heur_eval_df["blocking"], label="CaLRC-kSP-FF", marker="s", color='r')
+    # #plt.plot(heur_eval_1_df["load"], heur_eval_1_df["blocking"], label="NSC-kSP-FDL", marker="s", color='b')
+    #
+    # plt.legend(loc="lower right")
+    # plt.ylabel(r"Blocking Probability")# [\%]")
+    # plt.xlabel("Traffic Load [Erlangs]")
+    # plt.yscale("log")
+    # plt.xlim(40, 100)
+    # plt.grid(True)
+    # plt.show()
 
-    combined_eval_df = pd.read_csv(combined_eval)
-    heur_eval_df = pd.read_csv(heur_eval)
-    heur_eval_1_df = pd.read_csv(heur_eval_1)
-    heur_eval_2_df = pd.read_csv(heur_eval_file_2)
 
-    if args.use_tex:
-        rc('text', usetex=True)
-        rc('text.latex', preamble=r'\usepackage{cmbright}')
-
+    # Plot all heuristics
     fig, ax = plt.subplots()
     clrs = sns.color_palette("husl", 5)
-    labels = ["Agent", "CaLRC-kSP-FF", "NSC-kSP-FF", "Random Masked"]
     with sns.axes_style("darkgrid"):
-        for i, df in enumerate([combined_eval_df, heur_eval_df, heur_eval_1_df, heur_eval_2_df]):
-            ax.plot(df["load"], df["blocking"], label=labels[i], c=clrs[i])
-            ax.fill_between(df["load"], df["blocking"] - df["blocking_std"], df["blocking"] + df["blocking_std"], alpha=0.3, facecolor=clrs[i])
-            ax.legend(loc="lower right")
-            ax.set_yscale('log')
 
-    #plt.plot(combined_eval_df["load"], combined_eval_df["blocking"], label="Agent", marker="d", color='g')
-    #plt.plot(heur_eval_df["load"], heur_eval_df["blocking"], label="CaLRC-kSP-FF", marker="s", color='r')
-    #plt.plot(heur_eval_1_df["load"], heur_eval_1_df["blocking"], label="NSC-kSP-FDL", marker="s", color='b')
+        nh = ["calrc", "nsc", "tmr"]
+        ph = ["ff", "fdl", "msp_ef"]
+        i = 1
+        for nodeh in nh:
+            if nodeh == "nsc" or "tmr":
+                nname = nodeh.upper()
+            else:
+                nname = "CaLRC"
+            for pathh in ph:
+                if pathh[0] == 'f':
+                    pname = f"kSP-{pathh.upper()}"
+                else:
+                    pname = "MSP-EF"
+                i += 1
+                heur_eval = Path(args.heur_eval_file).parent
+
+                filename = heur_eval / f"{nodeh}_{pathh}_100slots.csv"
+                df = pd.read_csv(filename)
+
+                heuristic = f"{nname}+{pname}"
+
+                ax.plot(df["load"], df["blocking"], label=heuristic, c=clrs[i])
+                ax.fill_between(df["load"], df["blocking"] - df["blocking_std"],
+                                df["blocking"] + df["blocking_std"], alpha=0.3, facecolor=clrs[i])
+                ax.legend(loc="lower right")
+                ax.set_yscale('log')
+
+        # Plot random masked
+        i += 1
+        heur_eval = Path(args.heur_eval_file)
+        df = pd.read_csv(heur_eval)
+        heuristic = "Random Masked"
+        ax.plot(df["load"], df["blocking"], label=heuristic, c=clrs[i])
+        ax.fill_between(df["load"], df["blocking"] - df["blocking_std"],
+                        df["blocking"] + df["blocking_std"], alpha=0.3, facecolor=clrs[i])
+
+
+        combined_eval = Path(args.combined_eval_file)
+        combined_eval_df = pd.read_csv(combined_eval)
+        i += 1
+        ax.plot(combined_eval_df["load"], combined_eval_df["blocking"], label="Agent", c=clrs[i])
+        ax.fill_between(df["load"], df["blocking"] - df["blocking_std"], df["blocking"] + df["blocking_std"],
+                        alpha=0.3, facecolor=clrs[i])
+        ax.legend(loc="lower right")
+        ax.set_yscale('log')
+
 
     plt.legend(loc="lower right")
     plt.ylabel(r"Blocking Probability")# [\%]")
