@@ -27,6 +27,12 @@ dependencies:
   - pip:
       - git+https://github.com/DLR-RM/stable-baselines3
       - geneticalgorithm
-      - ray
       - geopy
+      - ray
       - geopandas
+      - install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+      - optax
+      - rlax
+      - chex
+      - haiku
+      - flax
